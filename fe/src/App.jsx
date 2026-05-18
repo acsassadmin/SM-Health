@@ -1,25 +1,31 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Staff from './pages/Staff';
 import Shifts from './pages/Shifts';
-import Login from './pages/Login';
-import Sidebar from './components/Sidebar'; // We will create this shared component
+import CareHomes from './pages/CareHomes';
+import Rota from './pages/Rota';
+import Availability from './pages/Availability';
+import Timesheets from './pages/Timesheets';
+import Compliance from './pages/Compliance';
+import Sidebar from './components/Sidebar'; // This line must match your file structure
 
 function App() {
   return (
     <Router>
       <div style={{ display: 'flex', height: '100vh' }}>
-        {/* Sidebar is always visible on the left */}
         <Sidebar />
         
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Routes>
-            <Route path="/login" element={<Login />} />
             <Route path="/" element={<Dashboard />} />
             <Route path="/staff" element={<Staff />} />
+            <Route path="/care-homes" element={<CareHomes />} />
             <Route path="/shifts" element={<Shifts />} />
-            {/* Add other routes here like Clients, Rota, etc. */}
+            <Route path="/rota" element={<Rota />} />
+            <Route path="/availability" element={<Availability />} />
+            <Route path="/timesheets" element={<Timesheets />} />
+            <Route path="/compliance" element={<Compliance />} />
           </Routes>
         </div>
       </div>
