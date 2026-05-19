@@ -8,7 +8,7 @@ import {
   Dashboard as DashboardIcon, People as PeopleIcon, Business as BusinessIcon, 
   EventNote as EventNoteIcon, CalendarMonth as CalendarMonthIcon, 
   CheckCircle as CheckCircleIcon, AccessTime as AccessTimeIcon, 
-  Shield as ShieldIcon, Logout as LogoutIcon // Added Logout Icon
+  Shield as ShieldIcon, Logout as LogoutIcon , PersonAdd as PersonAddIcon 
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient'; // Import your supabase client
 
@@ -18,7 +18,7 @@ const Sidebar = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate('/login'); // Redirect to login page after logout
+    navigate('/login'); 
   };
 
   const menuItems = [
@@ -30,6 +30,7 @@ const Sidebar = () => {
     { text: 'Availability', icon: <CheckCircleIcon />, path: '/availability', section: 'Compliance' },
     { text: 'Timesheets', icon: <AccessTimeIcon />, path: '/timesheets', section: 'Compliance', badge: 8 },
     { text: 'Compliance', icon: <ShieldIcon />, path: '/compliance', section: 'Compliance' },
+    { text: 'Add Staff', icon: <PersonAddIcon />, path: '/add-staff', section: 'Main' }
   ];
 
   // Group items by section
