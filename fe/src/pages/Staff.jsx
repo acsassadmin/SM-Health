@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Button, TextField, Grid, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Typography, Chip, Avatar, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, InputLabel, FormControl, IconButton, TablePagination
+  Box, Button, TextField, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, Typography, Chip, Avatar, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, InputLabel, FormControl, IconButton, TablePagination, Snackbar, Alert
 } from '@mui/material';
 import { Add as AddIcon, Search as SearchIcon, Visibility as ViewIcon, Edit as EditIcon } from '@mui/icons-material';
 
@@ -12,49 +12,62 @@ const Staff = () => {
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [notification, setNotification] = useState({ open: false, message: '', severity: 'success' });
   
   // Pagination State
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [count, setCount] = useState(0); // Total number of records for pagination calculation
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [count, setCount] = useState(0);
 
+  // Modal State
   const [modalOpen, setModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isViewing, setIsViewing] = useState(false); // New state to isolate view-only mode
   const [currentId, setCurrentId] = useState(null);
   const [formData, setFormData] = useState({
     first_name: '', last_name: '', email: '', phone: '', role: '', dbs_date: '', quals: ''
   });
 
-  // Fetch Data with Pagination
+  // --- Fetch Data ---
   useEffect(() => {
     fetchStaff();
-  }, [page, rowsPerPage]); // Re-fetch when page or rows per page changes
+  }, [page, rowsPerPage, searchTerm]);
 
   const fetchStaff = async () => {
     setLoading(true);
     
-    // 1. Calculate range for Supabase (0-indexed)
+    let query = supabase
+      .from('staff')
+      .select('*', { count: 'exact' })
+      .order('id', { ascending: true });
+
+    if (searchTerm) {
+      query = query.ilike('first_name', `%${searchTerm}%`)
+                   .or('last_name.ilike.%' + searchTerm + '%')
+                   .or('email.ilike.%' + searchTerm + '%')
+                   .or('role.ilike.%' + searchTerm + '%');
+    }
+
     const from = page * rowsPerPage;
     const to = from + rowsPerPage - 1;
 
-    // 2. Fetch the specific page of data
-    const { data, error, count } = await supabase
-      .from('staff')
-      .select('*', { count: 'exact' }) // Request total count for pagination math
-      .order('id', { ascending: true }) // Optional: Keep order consistent
-      .range(from, to);
+    const { data, error, count: totalCount } = await query.range(from, to);
 
     if (error) {
       console.error('Error fetching staff:', error);
+      setNotification({ open: true, message: 'Failed to load staff', severity: 'error' });
     } else {
       setStaff(data || []);
-      setCount(count || 0);
+      setCount(totalCount || 0);
     }
     setLoading(false);
   };
 
+  // --- Handlers ---
+
   const handleAddClick = () => {
     setIsEditing(false);
+    setIsViewing(false); // Form fields will be active
     setCurrentId(null);
     setFormData({ first_name: '', last_name: '', email: '', phone: '', role: '', dbs_date: '', quals: '' });
     setModalOpen(true);
@@ -62,6 +75,7 @@ const Staff = () => {
 
   const handleEditClick = (staffMember) => {
     setIsEditing(true);
+    setIsViewing(false); // Form fields will be active
     setCurrentId(staffMember.id);
     setFormData({
       first_name: staffMember.first_name || '',
@@ -77,6 +91,7 @@ const Staff = () => {
 
   const handleViewClick = (staffMember) => {
     setIsEditing(false);
+    setIsViewing(true); // Form fields will be disabled
     setCurrentId(staffMember.id);
     setFormData({
       first_name: staffMember.first_name || '',
@@ -92,7 +107,10 @@ const Staff = () => {
 
   const handleSave = async () => {
     const { first_name, last_name, email, phone, role, dbs_date, quals } = formData;
-    if (!first_name || !last_name) return alert("Name is required");
+    if (!first_name || !last_name) {
+      setNotification({ open: true, message: "First and Last name are required", severity: 'warning' });
+      return;
+    }
 
     let error;
     if (isEditing && currentId) {
@@ -109,19 +127,16 @@ const Staff = () => {
       error = insertError;
     }
 
-    if (error) alert(error.message);
-    else {
+    if (error) {
+      setNotification({ open: true, message: error.message, severity: 'error' });
+    } else {
       setModalOpen(false);
-      fetchStaff(); // Refresh table
+      setTimeout(() => {
+        setNotification({ open: true, message: isEditing ? 'Staff updated successfully' : 'Staff added successfully', severity: 'success' });
+        fetchStaff();
+      }, 100);
     }
   };
-
-  // Search functionality (Client-side filter for the current page)
-  // Note: For true search with pagination, you would typically filter the Supabase query 
-  // inside fetchStaff using .ilike(), but this keeps it simple for now.
-  const filtered = staff.filter(s => 
-    `${s.first_name} ${s.last_name} ${s.role}`.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
@@ -129,7 +144,12 @@ const Staff = () => {
 
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0); // Reset to first page when changing rows per page
+    setPage(0);
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+    setPage(0);
   };
 
   return (
@@ -137,13 +157,15 @@ const Staff = () => {
       {/* Page Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ fontFamily: 'serif', fontWeight: 500 }}>Staff Directory</Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', position: 'relative' }}>
+          <SearchIcon sx={{ position: 'absolute', left: 10, color: 'text.secondary', zIndex: 1, pointerEvents: 'none' }} />
+          
           <TextField 
             size="small" 
-            placeholder="Search..." 
-            InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1 }} /> }}
-            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-            sx={{ width: 300 }}
+            placeholder="Search name, role, email..." 
+            value={searchTerm}
+            onChange={handleSearchChange}
+            sx={{ width: 300, '& .MuiInputBase-root': { pl: 4 } }} 
           />
           <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick}>Add Staff</Button>
         </Box>
@@ -170,10 +192,10 @@ const Staff = () => {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={10} align="center">Loading...</TableCell></TableRow>
-              ) : filtered.length === 0 ? (
+              ) : staff.length === 0 ? (
                 <TableRow><TableCell colSpan={10} align="center">No staff found</TableCell></TableRow>
               ) : (
-                filtered.map((s) => (
+                staff.map((s) => (
                   <TableRow key={s.id} hover>
                     <TableCell>{s.id}</TableCell>
                     <TableCell>
@@ -216,9 +238,8 @@ const Staff = () => {
           </Table>
         </TableContainer>
         
-        {/* --- ADDED PAGINATION --- */}
         <TablePagination
-          rowsPerPageOptions={[5, 10, 25]}
+          rowsPerPageOptions={[10, 25, 50, 100]}
           component="div"
           count={count}
           rowsPerPage={rowsPerPage}
@@ -228,59 +249,102 @@ const Staff = () => {
         />
       </Paper>
 
-      {/* --- MODAL (View/Edit) --- */}
+      {/* --- MODAL (View/Edit/Create) --- */}
       <Dialog open={modalOpen} onClose={() => setModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontFamily: 'serif' }}>
-          {isEditing ? 'Edit Staff Member' : 'Staff Details'}
+          {isViewing ? 'Staff Details' : isEditing ? 'Edit Staff Member' : 'Add New Staff'}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <TextField 
-                  fullWidth label="First Name" size="small" 
-                  value={formData.first_name}
-                  disabled={!isEditing}
-                  onChange={(e) => setFormData({...formData, first_name: e.target.value})} 
-                />
-              </Grid>
-              <Grid item xs={6}>
-                <TextField 
-                  fullWidth label="Last Name" size="small" 
-                  value={formData.last_name}
-                  disabled={!isEditing}
-                  onChange={(e) => setFormData({...formData, last_name: e.target.value})} 
-                />
-              </Grid>
-            </Grid>
-            <TextField fullWidth label="Email" type="email" size="small" value={formData.email} disabled={!isEditing} onChange={(e) => setFormData({...formData, email: e.target.value})} />
-            <Grid container spacing={2}>
-              <Grid item xs={6}>
-                <FormControl fullWidth size="small" disabled={!isEditing}>
-                  <InputLabel>Role</InputLabel>
-                  <Select label="Role" value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})}>
-                    <MenuItem value="Carer">Carer</MenuItem>
-                    <MenuItem value="Senior Carer">Senior Carer</MenuItem>
-                    <MenuItem value="Nurse">Nurse</MenuItem>
-                    <MenuItem value="Senior Nurse">Senior Nurse</MenuItem>
-                    <MenuItem value="Support Worker">Support Worker</MenuItem>
-                    <MenuItem value="Team Leader">Team Leader</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6}>
-                <TextField fullWidth label="Phone" size="small" value={formData.phone} disabled={!isEditing} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
-              </Grid>
-            </Grid>
-            <TextField fullWidth type="date" label="DBS Expiry" size="small" InputLabelProps={{ shrink: true }} value={formData.dbs_date} disabled={!isEditing} onChange={(e) => setFormData({...formData, dbs_date: e.target.value})} />
-            <TextField fullWidth label="Qualifications" size="small" value={formData.quals} disabled={!isEditing} onChange={(e) => setFormData({...formData, quals: e.target.value})} />
+            
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField 
+                fullWidth label="First Name" size="small" 
+                value={formData.first_name}
+                disabled={isViewing}
+                onChange={(e) => setFormData({...formData, first_name: e.target.value})} 
+              />
+              <TextField 
+                fullWidth label="Last Name" size="small" 
+                value={formData.last_name}
+                disabled={isViewing}
+                onChange={(e) => setFormData({...formData, last_name: e.target.value})} 
+              />
+            </Box>
+
+            <TextField 
+              fullWidth label="Email" type="email" size="small" 
+              value={formData.email} 
+              disabled={isViewing} 
+              onChange={(e) => setFormData({...formData, email: e.target.value})} 
+            />
+
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <FormControl fullWidth size="small" disabled={isViewing}>
+                <InputLabel>Role</InputLabel>
+                <Select 
+                  label="Role" 
+                  value={formData.role} 
+                  onChange={(e) => setFormData({...formData, role: e.target.value})}
+                >
+                  <MenuItem value="Carer">Carer</MenuItem>
+                  <MenuItem value="Senior Carer">Senior Carer</MenuItem>
+                  <MenuItem value="Nurse">Nurse</MenuItem>
+                  <MenuItem value="Senior Nurse">Senior Nurse</MenuItem>
+                  <MenuItem value="Support Worker">Support Worker</MenuItem>
+                  <MenuItem value="Team Leader">Team Leader</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField 
+                fullWidth label="Phone" size="small" 
+                value={formData.phone} 
+                disabled={isViewing} 
+                onChange={(e) => setFormData({...formData, phone: e.target.value})} 
+              />
+            </Box>
+
+            <TextField 
+              fullWidth 
+              type="date" 
+              label="DBS Expiry" 
+              size="small" 
+              InputLabelProps={{ shrink: true }}
+              value={formData.dbs_date} 
+              disabled={isViewing} 
+              onChange={(e) => setFormData({...formData, dbs_date: e.target.value})} 
+            />
+
+            <TextField 
+              fullWidth 
+              label="Qualifications" 
+              size="small" 
+              value={formData.quals} 
+              disabled={isViewing} 
+              onChange={(e) => setFormData({...formData, quals: e.target.value})} 
+            />
           </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setModalOpen(false)}>Close</Button>
-          {isEditing && <Button variant="contained" onClick={handleSave}>Save Changes</Button>}
+          {!isViewing && (
+            <Button variant="contained" onClick={handleSave}>
+              {isEditing ? 'Save Changes' : 'Add Staff'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
+      
+      {/* Notification Toast */}
+      <Snackbar
+        open={notification.open}
+        autoHideDuration={4000}
+        onClose={() => setNotification({ ...notification, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity={notification.severity} sx={{ width: '100%' }}>
+          {notification.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
