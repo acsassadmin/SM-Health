@@ -1,0 +1,49 @@
+/* Minimal Layout CSS */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root, #app { height: 100%; width: 100%; }
+
+#app { display: flex; }
+
+#sidebar {
+  width: 240px;
+  background: #0c1f3f;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  border-right: 1px solid #1e3a8a;
+}
+
+.sidebar-logo {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 30px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.nav-item {
+  padding: 12px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  border-radius: 6px;
+  color: rgba(255,255,255,0.7);
+  transition: background 0.2s;
+}
+
+.nav-item:hover { background: rgba(255,255,255,0.1); color: white; }
+.nav-item.active { background: rgba(255,255,255,0.2); color: white; font-weight: bold; }
+
+#main { flex: 1; display: flex; flex-direction: column; }
+#topbar {
+  height: 60px;
+  background: white;
+  border-bottom: 1px solid #e1e8f4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
