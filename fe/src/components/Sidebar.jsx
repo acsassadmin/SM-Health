@@ -2,30 +2,24 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box, List, ListItem, ListItemButton, ListItemIcon, 
-  ListItemText, Typography, Divider, Avatar, Badge 
+  ListItemText, Typography, Divider, Avatar, Badge, Button // Added Button
 } from '@mui/material';
 import { 
   Dashboard as DashboardIcon, People as PeopleIcon, Business as BusinessIcon, 
   EventNote as EventNoteIcon, CalendarMonth as CalendarMonthIcon, 
   CheckCircle as CheckCircleIcon, AccessTime as AccessTimeIcon, 
-  Shield as ShieldIcon 
+  Shield as ShieldIcon, Logout as LogoutIcon // Added Logout Icon
 } from '@mui/icons-material';
-
-// Define Brand colors locally to avoid import errors
-const BRAND = {
-  primary: '#1a5fba', 
-  dark: '#0c1f3f',
-  bg: '#f7f9fc',
-  text: '#1a2535',
-  border: '#e1e8f4',
-  success: '#16a34a',
-  warning: '#d97706',
-  danger: '#dc2626'
-};
+import { supabase } from '../supabaseClient'; // Import your supabase client
 
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate('/login'); // Redirect to login page after logout
+  };
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/', section: 'Main' },
@@ -104,13 +98,34 @@ const Sidebar = () => {
 
       {/* Footer */}
       <Box sx={{ p: 3, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
           <Avatar sx={{ bgcolor: '#1a5fba', width: 32, height: 32 }}>AU</Avatar>
           <Box>
             <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'white', lineHeight: 1.2 }}>Admin User</Typography>
             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>Administrator</Typography>
           </Box>
         </Box>
+        
+        {/* --- ADDED LOGOUT BUTTON --- */}
+        <Button
+          fullWidth
+          variant="outlined"
+          startIcon={<LogoutIcon />}
+          onClick={handleLogout}
+          sx={{
+            borderColor: 'rgba(255,255,255,0.3)',
+            color: 'rgba(255,255,255,0.8)',
+            textTransform: 'none',
+            fontSize: '0.875rem',
+            '&:hover': {
+              borderColor: '#fff',
+              color: '#fff',
+              bgcolor: 'rgba(255,255,255,0.05)'
+            }
+          }}
+        >
+          Sign Out
+        </Button>
       </Box>
     </Box>
   );
