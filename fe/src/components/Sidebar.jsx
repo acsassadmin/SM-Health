@@ -30,7 +30,7 @@ const Sidebar = () => {
     { text: 'Availability', icon: <CheckCircleIcon />, path: '/availability', section: 'Compliance' },
     { text: 'Timesheets', icon: <AccessTimeIcon />, path: '/timesheets', section: 'Compliance' },
     { text: 'Compliance', icon: <ShieldIcon />, path: '/compliance', section: 'Compliance' },
-    { text: 'Add Staff', icon: <PersonAddIcon />, path: '/add-staff', section: 'Main' }
+    { text: 'Add users', icon: <PersonAddIcon />, path: '/add-staff', section: 'Main' }
   ];
 
   // Group items by section
@@ -90,7 +90,7 @@ const Sidebar = () => {
         </Typography>
       </Box>
 
-      {/* Menu Items */}
+      {/* Menu Items */}                
       <Box sx={{ flex: 1, overflowY: 'auto', py: 2 }}>
         {renderSection('Main', mainItems)}
         {renderSection('Scheduling', schedulingItems)}

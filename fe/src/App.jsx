@@ -17,6 +17,9 @@ import Sidebar from './components/Sidebar';
 import ProtectedRoute from "./components/ProtectedRoute";
 import AddStaff from './pages/AddStaff';
 
+// --- CONTEXT ---
+import { RoleProvider } from './context/RoleContext.jsx'; // Import the Provider
+
 function App() {
   return (
     <Router>
@@ -24,33 +27,37 @@ function App() {
         
         <Route path="/login" element={<LoginForm />} />
         
-       
         <Route
           path="/*" 
           element={
             <ProtectedRoute>
-              <Box sx={{ display: 'flex', height: '100vh' }}>
-                <Sidebar />
-                
-                <Box component="main" sx={{ flex: 1, overflowY: 'auto', p: 3, bgcolor: '#f7f9fc' }}>
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/staff" element={<Staff />} />
-                    <Route path="/care-homes" element={<CareHomes />} />
-                    <Route path="/shifts" element={<Shifts />} />
-                    <Route path="/rota" element={<Rota />} />
-                    <Route path="/availability" element={<Availability />} />
-                    <Route path="/timesheets" element={<Timesheets />} />
-                    <Route path="/compliance" element={<Compliance />} />
-                    <Route path="/settings" element={<Settings />} />
-                    <Route path="/add-staff" element={<AddStaff />} />
-                    
-                    {/* Catch any unknown internal route and redirect to dashboard */}
-                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                  </Routes>
+              <RoleProvider>
+                <Box sx={{ display: 'flex', height: '100vh' }}>
+                  
+                  <Sidebar />
+                  
+                  {/* Main Content Area */}
+                  <Box component="main" sx={{ flex: 1, overflowY: 'auto', p: 3, bgcolor: '#f7f9fc' }}>
+                    <Routes>
+                      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                      <Route path="/dashboard" element={<Dashboard />} />
+                      <Route path="/staff" element={<Staff />} />
+                      <Route path="/care-homes" element={<CareHomes />} />
+                      <Route path="/shifts" element={<Shifts />} />
+                      <Route path="/rota" element={<Rota />} />
+                      <Route path="/availability" element={<Availability />} />
+                      <Route path="/timesheets" element={<Timesheets />} />
+                      <Route path="/compliance" element={<Compliance />} />
+                      <Route path="/settings" element={<Settings />} />
+                      <Route path="/add-staff" element={<AddStaff />} />
+                      
+                      {/* Catch any unknown internal route and redirect to dashboard */}
+                      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                    </Routes>
+                  </Box>
+
                 </Box>
-              </Box>
+              </RoleProvider>
             </ProtectedRoute>
           }
         />
