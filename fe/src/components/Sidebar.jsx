@@ -25,10 +25,10 @@ const Sidebar = () => {
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/', section: 'Main' },
     { text: 'Staff Directory', icon: <PeopleIcon />, path: '/staff', section: 'Main' },
     { text: 'Care Homes', icon: <BusinessIcon />, path: '/care-homes', section: 'Main' },
-    { text: 'Shifts', icon: <EventNoteIcon />, path: '/shifts', section: 'Scheduling', badge: 23 },
+    { text: 'Shifts', icon: <EventNoteIcon />, path: '/shifts', section: 'Scheduling'},
     { text: 'Rota Calendar', icon: <CalendarMonthIcon />, path: '/rota', section: 'Scheduling' },
     { text: 'Availability', icon: <CheckCircleIcon />, path: '/availability', section: 'Compliance' },
-    { text: 'Timesheets', icon: <AccessTimeIcon />, path: '/timesheets', section: 'Compliance', badge: 8 },
+    { text: 'Timesheets', icon: <AccessTimeIcon />, path: '/timesheets', section: 'Compliance' },
     { text: 'Compliance', icon: <ShieldIcon />, path: '/compliance', section: 'Compliance' },
     { text: 'Add Staff', icon: <PersonAddIcon />, path: '/add-staff', section: 'Main' }
   ];
