@@ -51,9 +51,8 @@ export default function CompliancePage() {
     try {
       // 1. Fetch Staff
       const { data: staffData, error: staffError } = await supabase
-        .from('staff')
-        .select('*')
-        .eq('active', true); 
+  .from('staff')
+  .select('*');
       
       if (staffError) throw staffError;
 
