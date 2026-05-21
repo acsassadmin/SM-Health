@@ -1,12 +1,13 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Box } from '@mui/material';
+import { RoleProvider } from './context/RoleContext'; // <--- 1. Import
 
-// --- PAGES ---
+// Imports...
 import Dashboard from './pages/Dashboard';
 import Staff from './pages/Staff';
 import Shifts from './pages/Shifts';
-import Clients from './pages/Clients.jsx';
+import Clients from './pages/Clients';
 import Rota from './pages/Rota';
 import Availability from './pages/Availability';
 import Timesheets from './pages/Timesheets';
@@ -17,26 +18,21 @@ import Sidebar from './components/Sidebar';
 import ProtectedRoute from "./components/ProtectedRoute";
 import AddStaff from './pages/AddStaff';
 
-// --- CONTEXT ---
-import { RoleProvider } from './context/RoleContext.jsx'; // Import the Provider
-
 function App() {
   return (
-    <Router>
-      <Routes>
-        
-        <Route path="/login" element={<LoginForm />} />
-        
-        <Route
-          path="/*" 
-          element={
-            <ProtectedRoute>
-              <RoleProvider>
+    // <--- 2. WRAP EVERYTHING --->
+    <RoleProvider>
+      <Router>
+        <Routes>
+          
+          <Route path="/login" element={<LoginForm />} />
+          
+          <Route
+            path="/*" 
+            element={
+              <ProtectedRoute>
                 <Box sx={{ display: 'flex', height: '100vh' }}>
-                  
                   <Sidebar />
-                  
-                  {/* Main Content Area */}
                   <Box component="main" sx={{ flex: 1, overflowY: 'auto', p: 3, bgcolor: '#f7f9fc' }}>
                     <Routes>
                       <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -50,19 +46,16 @@ function App() {
                       <Route path="/compliance" element={<Compliance />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/add-staff" element={<AddStaff />} />
-                      
-                      {/* Catch any unknown internal route and redirect to dashboard */}
                       <Route path="*" element={<Navigate to="/dashboard" replace />} />
                     </Routes>
                   </Box>
-
                 </Box>
-              </RoleProvider>
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-    </Router>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </Router>
+    </RoleProvider>
   );
 }
 
