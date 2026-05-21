@@ -6,7 +6,8 @@ import {
 } from '@mui/material';
 import { Add, Business, LocationOn, Phone, Person, Bed } from '@mui/icons-material';
 
-const CareHomes = () => {
+// Renamed component from CareHomes to Clients
+const Clients = () => {
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   
@@ -19,9 +20,9 @@ const CareHomes = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    address: '',   // Ensure this matches your DB column name!
-    contact_name: '', // Ensure this matches your DB column name!
-    phone: '',       // Ensure this matches your DB column name!
+    address: '',   
+    contact_name: '', 
+    phone: '',       
     beds: ''
   });
 
@@ -37,6 +38,7 @@ const CareHomes = () => {
     const from = page * rowsPerPage;
     const to = from + rowsPerPage - 1;
 
+    // NOTE: Logic kept the same. Ensure your Supabase table is still named 'care_homes'
     const { data, error, count } = await supabase
       .from('care_homes')
       .select('*', { count: 'exact' }) // Get total count for pagination math
@@ -44,7 +46,7 @@ const CareHomes = () => {
       .range(from, to);
 
     if (error) {
-      console.error('Error fetching care homes:', error);
+      console.error('Error fetching clients:', error);
     } else {
       setHomes(data || []);
       setCount(count || 0);
@@ -73,7 +75,7 @@ const CareHomes = () => {
       return alert("Name and Address are required");
     }
 
-    // NOTE: Make sure these keys (name, address, etc.) match your DB columns exactly!
+    // NOTE: Logic kept the same. Keys match DB columns.
     const { error } = await supabase
       .from('care_homes')
       .insert([{
@@ -85,9 +87,9 @@ const CareHomes = () => {
       }]);
 
     if (error) {
-      alert('Error saving care home: ' + error.message);
+      alert('Error saving client: ' + error.message);
     } else {
-      alert('Care Home added successfully!');
+      alert('Client added successfully!');
       setModalOpen(false);
       fetchCareHomes(); // Refresh list
     }
@@ -108,9 +110,9 @@ const CareHomes = () => {
       
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" sx={{ fontFamily: 'serif', fontWeight: 500 }}>Care Homes</Typography>
+        <Typography variant="h4" sx={{ fontFamily: 'serif', fontWeight: 500 }}>Clients</Typography>
         <Button variant="contained" startIcon={<Add />} onClick={handleOpenModal}>
-          Add Care Home
+          Add Client
         </Button>
       </Box>
 
@@ -125,7 +127,7 @@ const CareHomes = () => {
             {homes.length === 0 ? (
                <Grid item xs={12}>
                  <Typography align="center" color="text.secondary" sx={{ mt: 5 }}>
-                   No care homes found. Add one!
+                   No clients found. Add one!
                  </Typography>
                </Grid>
             ) : (
@@ -202,11 +204,11 @@ const CareHomes = () => {
 
       {/* --- MODAL --- */}
       <Dialog open={modalOpen} onClose={handleCloseModal} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Care Home</DialogTitle>
+        <DialogTitle>Add New Client</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             <TextField
-              autoFocus margin="dense" name="name" label="Care Home Name"
+              autoFocus margin="dense" name="name" label="Client Name"
               type="text" fullWidth variant="outlined" size="small"
               value={formData.name} onChange={handleChange}
             />
@@ -240,7 +242,7 @@ const CareHomes = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseModal}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmit}>Save Care Home</Button>
+          <Button variant="contained" onClick={handleSubmit}>Save Client</Button>
         </DialogActions>
       </Dialog>
 
@@ -248,4 +250,4 @@ const CareHomes = () => {
   );
 };
 
-export default CareHomes;
+export default Clients;

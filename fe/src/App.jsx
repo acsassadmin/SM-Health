@@ -6,7 +6,7 @@ import { Box } from '@mui/material';
 import Dashboard from './pages/Dashboard';
 import Staff from './pages/Staff';
 import Shifts from './pages/Shifts';
-import CareHomes from './pages/CareHomes';
+import Clients from './pages/Clients.jsx';
 import Rota from './pages/Rota';
 import Availability from './pages/Availability';
 import Timesheets from './pages/Timesheets';
@@ -42,7 +42,7 @@ function App() {
                       <Route path="/" element={<Navigate to="/dashboard" replace />} />
                       <Route path="/dashboard" element={<Dashboard />} />
                       <Route path="/staff" element={<Staff />} />
-                      <Route path="/care-homes" element={<CareHomes />} />
+                      <Route path="/clients" element={<Clients />} />
                       <Route path="/shifts" element={<Shifts />} />
                       <Route path="/rota" element={<Rota />} />
                       <Route path="/availability" element={<Availability />} />

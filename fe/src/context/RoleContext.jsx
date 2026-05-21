@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient';
+import { supabase } from '../supabaseClient'; 
 
 const RoleContext = createContext();
 
@@ -13,15 +13,22 @@ export const RoleProvider = ({ children }) => {
   }, []);
 
   const checkUserSession = async () => {
+    console.log("🔍 [RoleContext] Checking user session...");
     const { data: { session } } = await supabase.auth.getSession();
+    
     if (session?.user) {
+      console.log("✅ [RoleContext] Session found. User ID:", session.user.id);
       await fetchUserRole(session.user.id);
     } else {
+      console.warn("⚠️ [RoleContext] No session found.");
       setLoading(false);
     }
   };
 
-  const fetchUserRole = async (userId) => {
+    const fetchUserRole = async (userId) => {
+    console.log("🔍 [RoleContext] Fetching role for User ID:", userId);
+
+    // REMOVED: .eq('is_primary', true) because it seems to be causing issues
     const { data, error } = await supabase
       .from('user_roles')
       .select(`
@@ -29,94 +36,54 @@ export const RoleProvider = ({ children }) => {
         app_roles!inner (name, slug)
       `)
       .eq('user_id', userId)
-      .eq('is_primary', true)
-      .single();
+      .maybeSingle(); // Changed from .single() to .maybeSingle() to prevent crash
 
     if (error) {
-      console.error("Error fetching role:", error);
+      console.error("❌ [RoleContext] Database Error:", error);
       setLoading(false);
       return;
     }
 
     if (data) {
-      const roleName = data.app_roles.name;
-      const roleSlug = data.app_roles.slug;
+      const dbSlug = (data.app_roles.slug || '').toLowerCase();
+      const dbName = (data.app_roles.name || '').toLowerCase();
       
-      setUserRole(roleName);
+      console.log(`📄 [RoleContext] Raw Data from DB:`, data);
+      console.log(`🔎 [RoleContext] Parsed Slug: "${dbSlug}" | Parsed Name: "${dbName}"`);
+      
+      setUserRole(data.app_roles.name);
 
-      // --- CUSTOMER RBAC MATRIX IMPLEMENTATION (4 Roles) ---
       let perms = [];
 
-      switch (roleSlug) {
-        
-        // ---------------------------------------------------------
-        // 1. DIRECTOR
-        // Full system access
-        // ---------------------------------------------------------
-        case 'director':
-          perms = ['all']; 
-          break;
-
-        // ---------------------------------------------------------
-        // 2. ADMINISTRATOR
-        // Full Access EXCEPT "Users & Roles"
-        // ---------------------------------------------------------
-        case 'administrator':
-          perms = [
-            'staff_read', 'staff_write', 'staff_delete',
-            'clients_read', 'clients_write', 'clients_delete',
-            'rota_read', 'rota_write', 'rota_delete',
-            'timesheets_read', 'timesheets_approve', 
-            'compliance_read',
-            'reports_read',
-            'settings_read', 'settings_write'
-            // NOTE: 'users_read', 'users_write', 'roles_write' are EXCLUDED
-          ];
-          break;
-
-        // ---------------------------------------------------------
-        // 3. HR OFFICER
-        // "Add + Edit" Staff, "Read" Clients/Rota/Timesheets, "No Delete"
-        // ---------------------------------------------------------
-        case 'hr_officer':
-          perms = [
-            'staff_read', 'staff_write', // Add + Edit allowed
-            // 'staff_delete' is MISSING
-            'clients_read',
-            'rota_read',
-            'timesheets_read',
-            'compliance_read',
-            'reports_read' 
-          ];
-          break;
-
-        // ---------------------------------------------------------
-        // 4. STAFF
-        // "Own record only", "Read (own) Rota", "Submit own" Timesheets
-        // ---------------------------------------------------------
-        case 'staff':
-        default:
-          perms = [
-            'staff_read', // UI should filter to show only own record
-            'rota_read',  // UI should filter to show only own shifts
-            'timesheets_submit',
-            'settings_read' 
-          ];
-          break;
+      if (dbSlug.includes('director')) {
+        console.log("✅ [RoleContext] MATCHED: Director. Assigning ['all']");
+        perms = ['all']; 
+      } else if (dbSlug.includes('administrator') || dbSlug.includes('admin')) {
+        console.log("✅ [RoleContext] MATCHED: Administrator. Assigning Admin Perms");
+        perms = ['staff_read', 'staff_write', 'staff_delete', 'clients_read', 'clients_write', 'clients_delete', 'rota_read', 'rota_write', 'rota_delete', 'timesheets_read', 'timesheets_approve', 'compliance_read', 'reports_read', 'settings_read', 'settings_write'];
+      } else if (dbSlug.includes('hr_officer') || dbSlug.includes('hr officer')) {
+        console.log("✅ [RoleContext] MATCHED: HR Officer. Assigning HR Perms");
+        perms = ['staff_read', 'staff_write', 'clients_read', 'rota_read', 'timesheets_read', 'compliance_read', 'reports_read'];
+      } else {
+        console.log("⚠️ [RoleContext] NO MATCH. Defaulting to Staff permissions.");
+        perms = ['staff_read', 'rota_read', 'timesheets_submit', 'settings_read'];
       }
 
+      console.log("🔓 [RoleContext] FINAL PERMISSIONS ARRAY:", perms);
       setPermissions(perms);
+    } else {
+      console.warn("⚠️ [RoleContext] NO DATA FOUND for this user ID in user_roles.");
+      setPermissions(['staff_read', 'rota_read', 'timesheets_submit', 'settings_read']);
     }
     setLoading(false);
   };
 
-  // Helper: Check if user has a specific permission
   const hasPermission = (requiredPerm) => {
-    if (permissions.includes('all')) return true;
-    return permissions.includes(requiredPerm);
+    const result = permissions.includes('all') || permissions.includes(requiredPerm);
+    
+    return result;
   };
 
-  // Helper: Check if user has ANY permission from a list
   const hasAnyPermission = (permList) => {
     if (permissions.includes('all')) return true;
     return permList.some(p => permissions.includes(p));

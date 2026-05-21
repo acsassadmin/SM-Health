@@ -57,12 +57,10 @@ const Shifts = () => {
     { code: 'GNP1', name: 'General Night', start: '19:30', end: '08:00' },
   ];
 
-
-
   useEffect(() => {
     fetchShifts();
     fetchClients();
-    // Removed fetchShiftPatterns() because we are using static data
+    // Removed fetchStaff() as we no longer need it for the modal
   }, []);
 
   const fetchShifts = async () => {
@@ -102,6 +100,7 @@ const Shifts = () => {
   };
 
   const fetchAvailableStaff = async (role) => {
+    // Fetches staff from the 'staff' table filtered by role
     const { data } = await supabase
       .from('staff')
       .select('id, first_name, last_name')
@@ -110,8 +109,6 @@ const Shifts = () => {
     
     if (data) setAvailableStaff(data);
   };
-
-  
 
   const filteredShifts = shifts.filter((shift) => {
     if (tabValue === 'open' && shift.assigned_id) return false;
@@ -130,8 +127,6 @@ const Shifts = () => {
     );
   });
 
-  
-
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
@@ -149,7 +144,6 @@ const Shifts = () => {
     }
   };
 
-  // UPDATED: Reads from STATIC_PATTERNS instead of DB
   const handleTimePatternChange = (e) => {
     const selectedCode = e.target.value;
     const pattern = STATIC_PATTERNS.find(p => p.code === selectedCode);
@@ -160,7 +154,6 @@ const Shifts = () => {
         pattern_code: selectedCode,
         start_time: pattern.start,
         end_time: pattern.end,
-        // Role remains manual
       }));
     }
   };
@@ -184,7 +177,6 @@ const Shifts = () => {
     setIsEditing(true);
     setEditingShiftId(shift.id);
     
-    // Try to match times to static pattern code
     const existingPattern = STATIC_PATTERNS.find(p => 
       p.start === shift.start_time?.substring(0, 5) && 
       p.end === shift.end_time?.substring(0, 5)
@@ -230,6 +222,7 @@ const Shifts = () => {
         if (error) throw error;
 
       } else {
+        // Create New Shift (Open, no assignment yet)
         const { error } = await supabase.from('shifts').insert([{
           client_id: formData.client_id,
           date: formData.date,
@@ -250,9 +243,38 @@ const Shifts = () => {
     }
   };
 
+  // Helper to create timesheet entry
+  const createTimesheetEntry = async (shiftData, staffData) => {
+    const startH = parseInt(shiftData.start_time.split(':')[0]);
+    const endH = parseInt(shiftData.end_time.split(':')[0]);
+    let hours = endH - startH;
+    if (hours < 0) hours += 24; 
+
+    try {
+      const { error } = await supabase
+        .from('timesheets')
+        .insert([{
+          shift_id: shiftData.id,
+          staff_id: staffData.id,
+          staff_name: `${staffData.first_name} ${staffData.last_name}`,
+          date: shiftData.date,
+          start_time: shiftData.start_time,
+          end_time: shiftData.end_time,
+          client_name: shiftData.care_homes?.name || 'Unknown',
+          hours_worked: hours,
+          status: 'pending'
+        }]);
+
+      if (error) console.error("Failed to create auto-timesheet:", error);
+    } catch (err) {
+      console.error("Timesheet creation error:", err);
+    }
+  };
+
   const handleOpenAssignModal = (shift) => {
     setSelectedShift(shift);
     setAvailableStaff([]);
+    // Fetch staff from 'staff' table matching the shift's role
     fetchAvailableStaff(shift.role);
     setIsAssignModalOpen(true);
   };
@@ -261,12 +283,26 @@ const Shifts = () => {
     if (!selectedShift) return;
 
     try {
+      // 1. Update Shift Table
       const { error } = await supabase
         .from('shifts')
         .update({ assigned_id: staffId })
         .eq('id', selectedShift.id);
 
       if (error) throw error;
+
+      // 2. Get Staff Details (for name)
+      // We fetch fresh details to ensure we have the correct name
+      const { data: staffData } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('id', staffId)
+        .single();
+
+      if (staffData) {
+        // 3. Create Timesheet Entry
+        await createTimesheetEntry(selectedShift, staffData);
+      }
 
       setIsAssignModalOpen(false);
       fetchShifts();
@@ -420,7 +456,6 @@ const Shifts = () => {
             sx={{ mb: 2 }}
           />
 
-          {/* STATIC DROPDOWN */}
           <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel>Shift Time *</InputLabel>
             <Select
@@ -437,7 +472,6 @@ const Shifts = () => {
             </Select>
           </FormControl>
 
-          {/* Role Dropdown (Manual Selection) */}
           <FormControl fullWidth sx={{ mb: 2 }}>
             <InputLabel>Role *</InputLabel>
             <Select

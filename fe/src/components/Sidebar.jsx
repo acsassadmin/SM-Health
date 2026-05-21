@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react'; // 1. Import useState and useEffect
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box, List, ListItem, ListItemButton, ListItemIcon, 
-  ListItemText, Typography, Divider, Avatar, Badge, Button // Added Button
+  ListItemText, Typography, Divider, Avatar, Badge, Button 
 } from '@mui/material';
 import { 
   Dashboard as DashboardIcon, People as PeopleIcon, Business as BusinessIcon, 
@@ -10,11 +10,55 @@ import {
   CheckCircle as CheckCircleIcon, AccessTime as AccessTimeIcon, 
   Shield as ShieldIcon, Logout as LogoutIcon , PersonAdd as PersonAddIcon 
 } from '@mui/icons-material';
-import { supabase } from '../supabaseClient'; // Import your supabase client
+import { supabase } from '../supabaseClient'; 
 
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // 2. State to hold the current user object
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    // 3. Function to get the initial session
+    const getUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+    };
+
+    getUser();
+
+    // 4. Listen for auth changes (e.g., login, logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Cleanup subscription on unmount
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 5. Helper to get display name (Check metadata, fallback to email)
+  const getDisplayName = () => {
+    if (!user) return 'Guest';
+    
+    // Check if full name exists in user_metadata (set during signup)
+    if (user.user_metadata?.full_name) return user.user_metadata.full_name;
+    if (user.user_metadata?.name) return user.user_metadata.name;
+    
+    // Fallback to email address if no name is found
+    return user.email;
+  };
+
+  // 6. Helper to generate initials for the Avatar
+  const getInitials = (name) => {
+    if (!name) return 'U';
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -24,7 +68,7 @@ const Sidebar = () => {
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/', section: 'Main' },
     { text: 'Staff Directory', icon: <PeopleIcon />, path: '/staff', section: 'Main' },
-    { text: 'Care Homes', icon: <BusinessIcon />, path: '/care-homes', section: 'Main' },
+    { text: 'Clients', icon: <BusinessIcon />, path: '/clients', section: 'Main' },
     { text: 'Shifts', icon: <EventNoteIcon />, path: '/shifts', section: 'Scheduling'},
     { text: 'Rota Calendar', icon: <CalendarMonthIcon />, path: '/rota', section: 'Scheduling' },
     { text: 'Availability', icon: <CheckCircleIcon />, path: '/availability', section: 'Compliance' },
@@ -78,6 +122,8 @@ const Sidebar = () => {
     </Box>
   );
 
+  const displayName = getDisplayName();
+
   return (
     <Box sx={{ width: 260, bgcolor: '#0c1f3f', color: 'white', display: 'flex', flexDirection: 'column', height: '100vh', flexShrink: 0 }}>
       {/* Header */}
@@ -100,14 +146,20 @@ const Sidebar = () => {
       {/* Footer */}
       <Box sx={{ p: 3, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-          <Avatar sx={{ bgcolor: '#1a5fba', width: 32, height: 32 }}>AU</Avatar>
+          {/* 7. Updated Avatar and Typography to use dynamic data */}
+          <Avatar sx={{ bgcolor: '#1a5fba', width: 32, height: 32 }}>
+            {getInitials(displayName)}
+          </Avatar>
           <Box>
-            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'white', lineHeight: 1.2 }}>Admin User</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>Administrator</Typography>
+            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'white', lineHeight: 1.2 }}>
+              {displayName}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+              {user?.user_metadata?.role || 'Staff'} {/* Optional: Display role if stored in metadata */}
+            </Typography>
           </Box>
         </Box>
         
-        {/* --- ADDED LOGOUT BUTTON --- */}
         <Button
           fullWidth
           variant="outlined"
