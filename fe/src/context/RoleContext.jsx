@@ -10,7 +10,33 @@ export const RoleProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // 1. Check initial session on app load
     checkUserSession();
+
+    // 2. Listen for auth state changes (Login, Logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log(`🔔 [AuthStateChange] Event: ${event}`);
+        
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          if (session?.user) {
+            setUser(session.user);
+            // We do NOT await fetchUserRole here to avoid blocking the listener,
+            // but the Login Form will await it manually.
+            fetchUserRole(session.user.id); 
+          }
+        } 
+        else if (event === 'SIGNED_OUT') {
+          console.warn("👋 [AuthStateChange] User signed out.");
+          setUser(null);
+          setUserRole(null);
+          setPermissions([]);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const checkUserSession = async () => {
@@ -27,7 +53,14 @@ export const RoleProvider = ({ children }) => {
     }
   };
 
+  // UPDATED: Returns the role string so LoginForm can wait for it
   const fetchUserRole = async (userId) => {
+    if (!userId) {
+      console.warn("⚠️ [RoleContext] fetchUserRole called without userId.");
+      setLoading(false);
+      return null;
+    }
+
     console.log("🔍 [RoleContext] Fetching role for User ID:", userId);
     setLoading(true);
 
@@ -45,26 +78,32 @@ export const RoleProvider = ({ children }) => {
       setUserRole('Staff');
       setPermissions(['staff_read', 'rota_read', 'timesheets_submit']);
       setLoading(false);
-      return;
+      return 'Staff'; // Return default role
     }
+
+    let finalRole = 'Staff'; // Default
 
     if (roleData) {
       const dbSlug = (roleData.app_roles.slug || '').toLowerCase();
       const dbName = roleData.app_roles.name;
       
       console.log(`📄 [RoleContext] User Role: ${dbName}`);
-      setUserRole(dbName);
+      setUserRole(dbSlug);
       
       let perms = [];
 
       if (dbSlug.includes('director')) {
         perms = ['all'];
+        finalRole = 'Director';
       } else if (dbSlug.includes('administrator') || dbSlug.includes('admin')) {
         perms = ['staff_read', 'staff_write', 'staff_delete', 'clients_read', 'clients_write', 'clients_delete', 'rota_read', 'rota_write', 'rota_delete', 'timesheets_read', 'timesheets_approve', 'compliance_read', 'reports_read', 'settings_read', 'settings_write'];
+        finalRole = 'Admin';
       } else if (dbSlug.includes('hr_officer') || dbSlug.includes('hr officer')) {
         perms = ['staff_read', 'staff_write', 'clients_read', 'rota_read', 'timesheets_read', 'compliance_read', 'reports_read'];
+        finalRole = 'HR';
       } else {
         perms = ['staff_read', 'rota_read', 'timesheets_submit', 'settings_read'];
+        finalRole = 'Staff';
       }
 
       setPermissions(perms);
@@ -73,7 +112,9 @@ export const RoleProvider = ({ children }) => {
       setUserRole('Staff');
       setPermissions(['staff_read', 'rota_read', 'timesheets_submit', 'settings_read']);
     }
+    
     setLoading(false);
+    return finalRole; // RETURN THE ROLE
   };
 
   const hasPermission = (requiredPerm) => {

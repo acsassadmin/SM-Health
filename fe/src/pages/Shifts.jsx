@@ -3,15 +3,19 @@ import {
   Box, Typography, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, Tabs, Tab, Chip, Avatar, IconButton,
   TextField, InputAdornment, CircularProgress, Alert, Dialog, DialogTitle,
-  DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel
+  DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel,
+  Card, CardContent, Grid, useMediaQuery, useTheme, Stack
 } from '@mui/material';
 import {
   Add as AddIcon, Search as SearchIcon, Edit as EditIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon, AccessTime, Business, Schedule, Person
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient';
 
 const Shifts = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
   // --- List State ---
   const [tabValue, setTabValue] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -31,42 +35,28 @@ const Shifts = () => {
   // --- Form Data ---
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
-    start_time: '', 
+    start_time: '',
     end_time: '',
-    role: 'Carer', 
-    client_id: '', 
+    role: 'Carer',
+    client_id: '',
     notes: '',
-    pattern_code: '' 
+    pattern_code: ''
   });
 
   // --- Reference Data ---
   const [clients, setClients] = useState([]);
   const [availableStaff, setAvailableStaff] = useState([]);
-
-  const STATIC_PATTERNS = [
-    { code: 'R1', name: 'One-to-One R1 Day', start: '09:00', end: '21:00' },
-    { code: 'R2', name: 'One-to-One R1 Night', start: '21:00', end: '09:00' },
-    { code: 'R3', name: 'One-to-One R3 Day', start: '09:00', end: '21:00' },
-    { code: 'R4', name: 'One-to-One R3 Night', start: '21:00', end: '09:00' },
-    { code: 'R5', name: 'One-to-One R6 Day', start: '09:00', end: '19:00' },
-    { code: 'R6', name: 'One-to-One R7 Day', start: '08:00', end: '20:00' },
-    { code: 'R7', name: 'One-to-One R7 Night', start: '20:00', end: '08:00' },
-    { code: 'R8', name: 'One-to-One R8 Day', start: '09:00', end: '21:00' },
-    { code: 'R9', name: 'One-to-One R10 Day', start: '08:00', end: '20:00' },
-    { code: 'GDP1', name: 'General Day', start: '07:30', end: '20:00' },
-    { code: 'GNP1', name: 'General Night', start: '19:30', end: '08:00' },
-  ];
+  const [shiftPatterns, setShiftPatterns] = useState([]);
 
   useEffect(() => {
     fetchShifts();
     fetchClients();
-    // Removed fetchStaff() as we no longer need it for the modal
+    fetchShiftPatterns();
   }, []);
 
   const fetchShifts = async () => {
     setLoading(true);
     setError(null);
-
     try {
       const { data, error } = await supabase
         .from('shifts')
@@ -99,15 +89,33 @@ const Shifts = () => {
     if (data) setClients(data);
   };
 
+  const fetchShiftPatterns = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('shift_patterns')
+        .select('code, name, start_time, end_time')
+        .order('code', { ascending: true });
+
+      if (error) throw error;
+      if (data) setShiftPatterns(data);
+    } catch (err) {
+      console.error("Error fetching shift patterns:", err);
+    }
+  };
+
   const fetchAvailableStaff = async (role) => {
-    // Fetches staff from the 'staff' table filtered by role
-    const { data } = await supabase
+    console.log("Fetching staff for role:", role);
+    const { data, error } = await supabase
       .from('staff')
       .select('id, first_name, last_name')
-      .eq('role', role)
-      .eq('active', true); 
-    
-    if (data) setAvailableStaff(data);
+      .eq('role', role);
+
+    if (error) {
+      console.error("Error fetching staff:", error);
+    } else {
+      console.log("Found staff:", data);
+      setAvailableStaff(data || []);
+    }
   };
 
   const filteredShifts = shifts.filter((shift) => {
@@ -116,8 +124,8 @@ const Shifts = () => {
 
     const term = searchTerm.toLowerCase();
     const careHomeName = shift.care_homes?.name || '';
-    const staffFullName = shift.staff 
-      ? `${shift.staff.first_name} ${shift.staff.last_name}`.toLowerCase() 
+    const staffFullName = shift.staff
+      ? `${shift.staff.first_name} ${shift.staff.last_name}`.toLowerCase()
       : '';
 
     return (
@@ -136,7 +144,7 @@ const Shifts = () => {
       try {
         const { error } = await supabase.from('shifts').delete().eq('id', id);
         if (error) throw error;
-        fetchShifts(); 
+        fetchShifts();
       } catch (err) {
         console.error("Error deleting shift:", err);
         alert("Failed to delete shift.");
@@ -146,14 +154,14 @@ const Shifts = () => {
 
   const handleTimePatternChange = (e) => {
     const selectedCode = e.target.value;
-    const pattern = STATIC_PATTERNS.find(p => p.code === selectedCode);
-    
+    const pattern = shiftPatterns.find(p => p.code === selectedCode);
+
     if (pattern) {
       setFormData(prev => ({
         ...prev,
         pattern_code: selectedCode,
-        start_time: pattern.start,
-        end_time: pattern.end,
+        start_time: pattern.start_time,
+        end_time: pattern.end_time,
       }));
     }
   };
@@ -166,7 +174,7 @@ const Shifts = () => {
       start_time: '',
       end_time: '',
       role: 'Carer',
-      client_id: '', 
+      client_id: '',
       notes: '',
       pattern_code: ''
     });
@@ -176,10 +184,10 @@ const Shifts = () => {
   const handleOpenEditModal = (shift) => {
     setIsEditing(true);
     setEditingShiftId(shift.id);
-    
-    const existingPattern = STATIC_PATTERNS.find(p => 
-      p.start === shift.start_time?.substring(0, 5) && 
-      p.end === shift.end_time?.substring(0, 5)
+
+    const existingPattern = shiftPatterns.find(p =>
+      p.start_time?.substring(0, 5) === shift.start_time?.substring(0, 5) &&
+      p.end_time?.substring(0, 5) === shift.end_time?.substring(0, 5)
     );
 
     setFormData({
@@ -188,7 +196,7 @@ const Shifts = () => {
       start_time: shift.start_time,
       end_time: shift.end_time,
       role: shift.role,
-      client_id: shift.client_id, 
+      client_id: shift.client_id,
       notes: shift.notes || '',
       pattern_code: existingPattern ? existingPattern.code : ''
     });
@@ -196,11 +204,11 @@ const Shifts = () => {
   };
 
   const handleSaveShift = async () => {
-    if (!formData.client_id || !formData.date) {
-      alert("Please select a Care Home and Date.");
+    if (!formData.client_id) {
+      alert("Please select a Client.");
       return;
     }
-    if (!formData.start_time || !formData.end_time) {
+    if (!formData.pattern_code) {
       alert("Please select a Shift Time pattern.");
       return;
     }
@@ -218,11 +226,8 @@ const Shifts = () => {
             notes: formData.notes
           })
           .eq('id', editingShiftId);
-
         if (error) throw error;
-
       } else {
-        // Create New Shift (Open, no assignment yet)
         const { error } = await supabase.from('shifts').insert([{
           client_id: formData.client_id,
           date: formData.date,
@@ -231,10 +236,9 @@ const Shifts = () => {
           role: formData.role,
           notes: formData.notes
         }]);
-
         if (error) throw error;
       }
-      
+
       setIsCreateModalOpen(false);
       fetchShifts();
     } catch (err) {
@@ -243,13 +247,11 @@ const Shifts = () => {
     }
   };
 
-  // Helper to create timesheet entry
   const createTimesheetEntry = async (shiftData, staffData) => {
     const startH = parseInt(shiftData.start_time.split(':')[0]);
     const endH = parseInt(shiftData.end_time.split(':')[0]);
     let hours = endH - startH;
-    if (hours < 0) hours += 24; 
-
+    if (hours < 0) hours += 24;
     try {
       const { error } = await supabase
         .from('timesheets')
@@ -264,7 +266,6 @@ const Shifts = () => {
           hours_worked: hours,
           status: 'pending'
         }]);
-
       if (error) console.error("Failed to create auto-timesheet:", error);
     } catch (err) {
       console.error("Timesheet creation error:", err);
@@ -274,36 +275,26 @@ const Shifts = () => {
   const handleOpenAssignModal = (shift) => {
     setSelectedShift(shift);
     setAvailableStaff([]);
-    // Fetch staff from 'staff' table matching the shift's role
     fetchAvailableStaff(shift.role);
     setIsAssignModalOpen(true);
   };
 
   const handleAssignStaff = async (staffId) => {
     if (!selectedShift) return;
-
     try {
-      // 1. Update Shift Table
       const { error } = await supabase
         .from('shifts')
         .update({ assigned_id: staffId })
         .eq('id', selectedShift.id);
-
       if (error) throw error;
-
-      // 2. Get Staff Details (for name)
-      // We fetch fresh details to ensure we have the correct name
       const { data: staffData } = await supabase
         .from('staff')
         .select('*')
         .eq('id', staffId)
         .single();
-
       if (staffData) {
-        // 3. Create Timesheet Entry
         await createTimesheetEntry(selectedShift, staffData);
       }
-
       setIsAssignModalOpen(false);
       fetchShifts();
     } catch (err) {
@@ -324,16 +315,87 @@ const Shifts = () => {
     }
   };
 
+  const ShiftCard = ({ shift }) => (
+    <Card sx={{ mb: 2, border: '1px solid #e0e0e0', boxShadow: 2 }}>
+      <CardContent sx={{ p: 2 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+          <Chip
+            label={shift.role}
+            size="small"
+            color="primary"
+            variant="outlined"
+            sx={{ fontWeight: 'bold' }}
+          />
+          <Chip
+            label={shift.assigned_id ? 'Covered' : 'Open'}
+            color={shift.assigned_id ? 'success' : 'warning'}
+            size="small"
+          />
+        </Box>
+        <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#0c1f3f', mb: 0.5 }}>
+          {shift.care_homes?.name || <span style={{ color: 'red' }}>Unlinked</span>}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, color: '#637381' }}>
+          <AccessTime fontSize="small" />
+          <Typography variant="body2">
+            {shift.date} • {shift.start_time?.substring(0, 5)} - {shift.end_time?.substring(0, 5)}
+          </Typography>
+        </Box>
+        {shift.assigned_id ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, bgcolor: '#f5f5f5', p: 1, borderRadius: 1 }}>
+            <Avatar sx={{ width: 24, height: 24, bgcolor: '#1a5fba', fontSize: '0.8rem' }}>
+              {shift.staff?.first_name?.charAt(0) || '?'}
+            </Avatar>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+              {shift.staff ? `${shift.staff.first_name} ${shift.staff.last_name}` : 'Unknown Staff'}
+            </Typography>
+          </Box>
+        ) : (
+          <Typography variant="body2" sx={{ color: '#9e9e9e', fontStyle: 'italic', mb: 2 }}>
+            Unassigned
+          </Typography>
+        )}
+        <Stack direction="row" spacing={1} justifyContent="flex-end">
+          {!shift.assigned_id ? (
+            <Button size="small" variant="contained" onClick={() => handleOpenAssignModal(shift)}>
+              Assign
+            </Button>
+          ) : (
+            <Button size="small" color="warning" variant="outlined" onClick={() => handleUnassign(shift.id)}>
+              Unassign
+            </Button>
+          )}
+          <IconButton size="small" onClick={() => handleOpenEditModal(shift)}><EditIcon fontSize="small" /></IconButton>
+          <IconButton size="small" color="error" onClick={() => handleDelete(shift.id)}><DeleteIcon fontSize="small" /></IconButton>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+
   if (loading) return <CircularProgress sx={{ m: 5 }} />;
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f4f6f8', minHeight: '100vh' }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Shift Management</Typography>
-        <Button 
-          variant="contained" 
-          startIcon={<AddIcon />} 
-          sx={{ bgcolor: '#1a5fba' }}
+    <Box sx={{ p: { xs: 1, sm: 3 }, bgcolor: '#f4f6f8', minHeight: '100vh' }}>
+      {/* Header */}
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: { xs: 'flex-start', sm: 'center' },
+        mb: 3,
+        flexDirection: { xs: 'column', sm: 'row' },
+        gap: 2
+      }}>
+        <Typography variant="h4" sx={{ fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+          Shift Management
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          sx={{
+            bgcolor: '#1a5fba',
+            width: { xs: '100%', sm: 'auto' },
+            py: 1.5
+          }}
           onClick={handleOpenCreateModal}
         >
           Create Shift
@@ -343,17 +405,20 @@ const Shifts = () => {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       <Paper sx={{ width: '100%', mb: 3 }}>
+        {/* Tabs */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2, pt: 1 }}>
-          <Tabs value={tabValue} onChange={handleTabChange}>
+          <Tabs value={tabValue} onChange={handleTabChange} variant={isMobile ? "scrollable" : "standard"} scrollButtons={isMobile ? "auto" : false}>
             <Tab label="All Shifts" value="all" />
             <Tab label="Open" value="open" />
             <Tab label="Covered" value="covered" />
           </Tabs>
         </Box>
+
+        {/* Search */}
         <Box sx={{ p: 2, bgcolor: '#fafafa' }}>
           <TextField
             size="small"
-            placeholder="Search by Care Home, Role, or Staff..."
+            placeholder="Search by Client, Role, or Staff..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             InputProps={{
@@ -363,160 +428,362 @@ const Shifts = () => {
                 </InputAdornment>
               ),
             }}
-            sx={{ width: 300 }}
+            fullWidth={isMobile}
+            sx={{ width: { xs: '100%', md: 300 } }}
           />
         </Box>
-        <TableContainer>
-          <Table>
-            <TableHead sx={{ bgcolor: '#f1f3f4' }}>
-              <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>Time</TableCell>
-                <TableCell>Care Home</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Assigned To</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredShifts.length > 0 ? (
-                filteredShifts.map((shift) => (
-                  <TableRow key={shift.id} hover>
-                    <TableCell sx={{ fontWeight: 500 }}>{shift.date}</TableCell>
-                    <TableCell sx={{ color: '#637381', fontSize: '0.9rem' }}>
-                      {shift.start_time?.substring(0, 5)} - {shift.end_time?.substring(0, 5)}
-                    </TableCell>
-                    <TableCell>{shift.care_homes?.name || <span style={{color:'red'}}>Unlinked</span>}</TableCell>
-                    <TableCell><Chip label={shift.role} variant="outlined" size="small" color="primary" /></TableCell>
-                    <TableCell>
-                      {shift.assigned_id ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar sx={{ width: 24, height: 24, bgcolor: '#1a5fba', fontSize: '0.8rem' }}>
-                            {shift.staff?.first_name?.charAt(0) || '?'}
-                          </Avatar>
-                          <Typography variant="body2">
-                            {shift.staff ? `${shift.staff.first_name} ${shift.staff.last_name}` : 'Unknown Staff'}
-                          </Typography>
-                        </Box>
-                      ) : (
-                        <Typography variant="body2" sx={{ color: '#9e9e9e', fontStyle: 'italic' }}>Unassigned</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={shift.assigned_id ? 'Covered' : 'Open'} color={shift.assigned_id ? 'success' : 'warning'} size="small" variant="filled"/>
-                    </TableCell>
-                    <TableCell align="right">
-                      {!shift.assigned_id ? (
-                        <Button size="small" variant="contained" sx={{ mr: 1 }} onClick={() => handleOpenAssignModal(shift)}>Assign</Button>
-                      ) : (
-                        <Button size="small" color="warning" variant="outlined" sx={{ mr: 1 }} onClick={() => handleUnassign(shift.id)}>Unassign</Button>
-                      )}
-                      <IconButton size="small" onClick={() => handleOpenEditModal(shift)}><EditIcon fontSize="small" /></IconButton>
-                      <IconButton size="small" color="error" onClick={() => handleDelete(shift.id)}><DeleteIcon fontSize="small" /></IconButton>
+
+        {/* Table / Cards */}
+        {!isMobile ? (
+          <TableContainer>
+            <Table>
+              <TableHead sx={{ bgcolor: '#f1f3f4' }}>
+                <TableRow>
+                  <TableCell>Date</TableCell>
+                  <TableCell>Time</TableCell>
+                  <TableCell>Client</TableCell>
+                  <TableCell>Role</TableCell>
+                  <TableCell>Assigned To</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredShifts.length > 0 ? (
+                  filteredShifts.map((shift) => (
+                    <TableRow key={shift.id} hover>
+                      <TableCell sx={{ fontWeight: 500 }}>{shift.date}</TableCell>
+                      <TableCell sx={{ color: '#637381', fontSize: '0.9rem' }}>
+                        {shift.start_time?.substring(0, 5)} - {shift.end_time?.substring(0, 5)}
+                      </TableCell>
+                      <TableCell>{shift.care_homes?.name || <span style={{ color: 'red' }}>Unlinked</span>}</TableCell>
+                      <TableCell><Chip label={shift.role} variant="outlined" size="small" color="primary" /></TableCell>
+                      <TableCell>
+                        {shift.assigned_id ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Avatar sx={{ width: 24, height: 24, bgcolor: '#1a5fba', fontSize: '0.8rem' }}>
+                              {shift.staff?.first_name?.charAt(0) || '?'}
+                            </Avatar>
+                            <Typography variant="body2">
+                              {shift.staff ? `${shift.staff.first_name} ${shift.staff.last_name}` : 'Unknown Staff'}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: '#9e9e9e', fontStyle: 'italic' }}>Unassigned</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={shift.assigned_id ? 'Covered' : 'Open'} color={shift.assigned_id ? 'success' : 'warning'} size="small" variant="filled" />
+                      </TableCell>
+                      <TableCell align="right">
+                        {!shift.assigned_id ? (
+                          <Button size="small" variant="contained" sx={{ mr: 1 }} onClick={() => handleOpenAssignModal(shift)}>Assign</Button>
+                        ) : (
+                          <Button size="small" color="warning" variant="outlined" sx={{ mr: 1 }} onClick={() => handleUnassign(shift.id)}>Unassign</Button>
+                        )}
+                        <IconButton size="small" onClick={() => handleOpenEditModal(shift)}><EditIcon fontSize="small" /></IconButton>
+                        <IconButton size="small" color="error" onClick={() => handleDelete(shift.id)}><DeleteIcon fontSize="small" /></IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <Typography color="textSecondary">No shifts found matching your filters.</Typography>
                     </TableCell>
                   </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                    <Typography color="textSecondary">No shifts found matching your filters.</Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        ) : (
+          <Box sx={{ p: 2 }}>
+            {filteredShifts.length > 0 ? (
+              filteredShifts.map(shift => <ShiftCard key={shift.id} shift={shift} />)
+            ) : (
+              <Typography align="center" color="textSecondary" sx={{ py: 4 }}>
+                No shifts found.
+              </Typography>
+            )}
+          </Box>
+        )}
       </Paper>
 
-      {/* CREATE / EDIT SHIFT MODAL */}
-      <Dialog open={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{isEditing ? 'Edit Shift' : 'Create New Shift'}</DialogTitle>
-        <DialogContent>
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Care Home *</InputLabel>
-            <Select
-              value={formData.client_id}
-              label="Care Home *"
-              onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-            >
-              {clients.map((c) => (
-                <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+      {/* --- CREATE / EDIT MODAL --- */}
+      <Dialog
+        open={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            boxShadow: '0 24px 54px rgba(0,0,0,0.15)',
+            overflow: 'hidden'
+          }
+        }}
+      >
+        {/* Header */}
+        <Box sx={{
+          background: 'linear-gradient(135deg, #1a5fba 0%, #0c1f3f 100%)',
+          color: 'white',
+          py: 4,
+          px: 4,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2
+        }}>
+          <Box sx={{
+            bgcolor: 'rgba(255,255,255,0.15)',
+            p: 1.5,
+            borderRadius: 3,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(4px)'
+          }}>
+            <Schedule sx={{ fontSize: 32 }} />
+          </Box>
+          <Box>
+            <DialogTitle sx={{ p: 0, m: 0, fontSize: '1.65rem', fontWeight: 700, letterSpacing: '-0.5px' }}>
+              {isEditing ? 'Edit Shift Details' : 'Create New Shift'}
+            </DialogTitle>
+            <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.5, fontWeight: 300 }}>
+              {isEditing ? 'Update the shift parameters below.' : 'Fill in the structured details to schedule this shift.'}
+            </Typography>
+          </Box>
+        </Box>
 
-          <TextField
-            fullWidth
-            type="date"
-            label="Date *"
-            InputLabelProps={{ shrink: true }}
-            value={formData.date}
-            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-            sx={{ mb: 2 }}
-          />
+        <DialogContent sx={{ p: 4, bgcolor: '#f8f9fa' }}>
+          <Grid container spacing={3.5}>
 
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Shift Time *</InputLabel>
-            <Select
-              value={formData.pattern_code}
-              label="Shift Time *"
-              onChange={handleTimePatternChange}
-            >
-              <MenuItem value=""><em>Select a time pattern...</em></MenuItem>
-              {STATIC_PATTERNS.map((p) => (
-                <MenuItem key={p.code} value={p.code}>
-                  {p.name} ({p.start} - {p.end})
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+            {/* Row 1: CLIENT */}
+            <Grid item xs={12}>
+              <Box sx={{ width: '100%' }}>
+                <FormControl fullWidth variant="outlined" sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                  <InputLabel id="client-select-label" shrink sx={{ transform: 'translate(14px, -6px) scale(0.75)' }}>
+                    Client *
+                  </InputLabel>
+                  <Select
+                    labelId="client-select-label"
+                    value={formData.client_id}
+                    displayEmpty
+                    notched
+                    label="Client *"
+                    onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                    renderValue={(selected) => {
+                      if (!selected) {
+                        return <Typography color="textSecondary">Select a Client...</Typography>;
+                      }
+                      const client = clients.find(c => c.id === selected);
+                      return client ? client.name : '';
+                    }}
+                  >
+                    <MenuItem value="" disabled>
+                      <em>Select a Client...</em>
+                    </MenuItem>
+                    {clients.map((c) => (
+                      <MenuItem key={c.id} value={c.id}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <Business fontSize="small" color="action" />
+                          <Typography variant="body1">{c.name}</Typography>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+            </Grid>
+            {/* Row 2: SHIFT TIME PATTERN */}
+            <Grid item xs={12}>
+              <Box sx={{ width: '100%' }}>
+                <FormControl fullWidth variant="outlined" sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                  <InputLabel id="pattern-select-label" shrink sx={{ transform: 'translate(14px, -6px) scale(0.75)' }}>
+                    Shift Time Pattern *
+                  </InputLabel>
+                  <Select
+                    labelId="pattern-select-label"
+                    value={formData.pattern_code}
+                    displayEmpty
+                    notched
+                    label="Shift Time Pattern *"
+                    onChange={handleTimePatternChange}
+                    renderValue={(selected) => {
+                      if (!selected) {
+                        return <Typography color="textSecondary">Select a Time Pattern...</Typography>;
+                      }
+                      // Find the active pattern details so the selected value renders safely inside a proper Box layout container
+                      const pattern = shiftPatterns.find(p => p.code === selected);
+                      return pattern ? (
+                        <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                          {pattern.code} — {pattern.name} ({pattern.start_time?.substring(0, 5)} - {pattern.end_time?.substring(0, 5)})
+                        </Typography>
+                      ) : selected;
+                    }}
+                  >
+                    <MenuItem value="" disabled>
+                      <em>Select a Time Pattern...</em>
+                    </MenuItem>
+                    {shiftPatterns.map((p) => (
+                      <MenuItem key={p.code} value={p.code}>
+                        <Box sx={{ width: '100%', py: 0.5 }}>
+                          <Typography variant="body2" fontWeight="600" color="primary.main">
+                            {p.code} — {p.name}
+                          </Typography>
+                          <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
+                            Time slot: {p.start_time?.substring(0, 5)} to {p.end_time?.substring(0, 5)}
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+            </Grid>
 
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Role *</InputLabel>
-            <Select
-              value={formData.role}
-              label="Role *"
-              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-            >
-              <MenuItem value="Carer">Carer</MenuItem>
-              <MenuItem value="Senior Carer">Senior Carer</MenuItem>
-              <MenuItem value="Nurse">Nurse</MenuItem>
-              <MenuItem value="Senior Nurse">Senior Nurse</MenuItem>
-              <MenuItem value="Support Worker">Support Worker</MenuItem>
-            </Select>
-          </FormControl>
+            {/* Row 3: Split columns for DATE and ROLE */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                type="date"
+                label="Date *"
+                InputLabelProps={{ shrink: true }}
+                value={formData.date}
+                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Grid>
 
-          <TextField fullWidth multiline rows={2} label="Notes" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth variant="outlined" sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <InputLabel id="role-select-label">Role *</InputLabel>
+                <Select
+                  labelId="role-select-label"
+                  value={formData.role}
+                  label="Role *"
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                >
+                  <MenuItem value="Carer">Carer</MenuItem>
+                  <MenuItem value="Senior Carer">Senior Carer</MenuItem>
+                  <MenuItem value="Nurse">Nurse</MenuItem>
+                  <MenuItem value="Senior Nurse">Senior Nurse</MenuItem>
+                  <MenuItem value="Support Worker">Support Worker</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Row 4: NOTES */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                multiline
+                rows={4}
+                label="Notes & Special Instructions"
+                placeholder="Add any specific requirements or handover details for this shift..."
+                InputLabelProps={{ shrink: true }}
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+              />
+            </Grid>
+
+          </Grid>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSaveShift} sx={{ bgcolor: '#1a5fba' }}>
-            {isEditing ? 'Update Shift' : 'Save Shift'}
+
+        {/* Footer Actions */}
+        <DialogActions sx={{ p: 3, px: 4, bgcolor: '#fff', borderTop: '1px solid #f0f0f0', gap: 1 }}>
+          <Button
+            onClick={() => setIsCreateModalOpen(false)}
+            sx={{
+              color: '#6c757d',
+              fontWeight: 600,
+              textTransform: 'none',
+              px: 3,
+              '&:hover': { bgcolor: '#f1f3f5' }
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveShift}
+            sx={{
+              bgcolor: '#1a5fba',
+              px: 4,
+              py: 1.25,
+              borderRadius: 2,
+              fontWeight: 'bold',
+              textTransform: 'none',
+              boxShadow: '0 8px 20px rgba(26, 95, 186, 0.25)',
+              '&:hover': {
+                bgcolor: '#154a96',
+                boxShadow: '0 8px 25px rgba(26, 95, 186, 0.35)'
+              }
+            }}
+          >
+            {isEditing ? 'Save Changes' : 'Schedule Shift'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* ASSIGN STAFF MODAL */}
-      <Dialog open={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} maxWidth="sm" fullWidth>
+      {/* --- ASSIGN STAFF MODAL --- */}
+      <Dialog open={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          Assign Staff 
-          <Typography variant="caption" display="block" color="textSecondary">
-            {selectedShift?.role} required for {selectedShift?.care_homes?.name} on {selectedShift?.date}
+          Assign Staff to Shift
+          <Typography variant="caption" display="block" color="textSecondary" sx={{ mt: 1 }}>
+            Role: <strong>{selectedShift?.role}</strong> | Client: <strong>{selectedShift?.care_homes?.name}</strong> | Date: <strong>{selectedShift?.date}</strong>
           </Typography>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ p: 0 }}>
           {availableStaff.length === 0 ? (
-             <Alert severity="info">No active staff found matching the role: {selectedShift?.role}</Alert>
+            <Box sx={{ p: 3 }}>
+              <Alert severity="info">
+                No active staff found matching the role: <strong>{selectedShift?.role}</strong>.
+                <br />
+                <Typography variant="caption" sx={{ mt: 1 }}>
+                  Please check your Staff Directory to ensure staff have this exact role assigned.
+                </Typography>
+              </Alert>
+            </Box>
           ) : (
-            availableStaff.map((staff) => (
-              <Box key={staff.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderBottom: '1px solid #eee' }}>
-                <Box>
-                  <Typography variant="body1" fontWeight="bold">{staff.first_name} {staff.last_name}</Typography>
-                </Box>
-                <Button size="small" variant="outlined" onClick={() => handleAssignStaff(staff.id)}>Assign</Button>
-              </Box>
-            ))
+            <TableContainer>
+              <Table stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Staff Name</TableCell>
+                    <TableCell>Role</TableCell>
+                    <TableCell align="right">Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {availableStaff.map((staff) => (
+                    <TableRow key={staff.id} hover>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Avatar sx={{ width: 28, height: 28, bgcolor: '#1a5fba', fontSize: '0.8rem' }}>
+                            {staff.first_name[0]}{staff.last_name[0]}
+                          </Avatar>
+                          <Typography variant="body2" fontWeight="bold">
+                            {staff.first_name} {staff.last_name}
+                          </Typography>
+                        </Box>
+                      </TableCell>
+                      <TableCell>{selectedShift?.role}</TableCell>
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => handleAssignStaff(staff.id)}
+                          startIcon={<Person />}
+                        >
+                          Assign
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
         </DialogContent>
         <DialogActions>

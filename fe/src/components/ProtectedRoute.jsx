@@ -1,45 +1,43 @@
-import React, { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import React from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { CircularProgress, Box } from '@mui/material';
-import { supabase } from '../supabaseClient'; 
+import { useRole } from '../context/RoleContext';
+
 const ProtectedRoute = ({ children }) => {
-  const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState(null);
+  const { user, loading } = useRole();
+  const location = useLocation();
 
-  useEffect(() => {
-    // Check active session
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setLoading(false);
-    };
+  // 1. SPECIAL CHECK: If we are on the Login page, bypass the "User Required" check
+  // This prevents the infinite loop / stuck loader when entering the site.
+  if (location.pathname === '/login') {
+    if (loading) {
+      // Show a quick loader only while checking session initially
+      return (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <CircularProgress />
+        </Box>
+      );
+    }
+    // Allow the login page to render
+    return <>{children}</>;
+  }
 
-    checkSession();
-
-    // Listen for auth changes (e.g., login in another tab)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
+  // 2. STANDARD CHECK: For all other pages (Dashboard, Staff, etc.)
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
+        <CircularProgress size={60} sx={{ color: '#1a5fba' }} />
       </Box>
     );
   }
 
-  if (!session) {
-    // Not logged in? Redirect to Login
+  if (!user) {
+    // If not logged in and trying to access a protected page, go to login
     return <Navigate to="/login" replace />;
   }
 
-  // Logged in? Show the requested page
-  return children;
+  // 3. Logged in and accessing a protected page
+  return <>{children}</>;
 };
 
 export default ProtectedRoute;

@@ -2,18 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import {
   Box, Typography, Button, Grid, Card, CardContent, Chip,
-  Dialog, DialogTitle, DialogContent, DialogActions, TextField, CircularProgress, TablePagination
+  Dialog, DialogTitle, DialogContent, DialogActions, TextField, 
+  CircularProgress, TablePagination, useMediaQuery, useTheme
 } from '@mui/material';
 import { Add, Business, LocationOn, Phone, Person, Bed } from '@mui/icons-material';
 
-// Renamed component from CareHomes to Clients
 const Clients = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // Detect mobile screen
+
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   
   // Pagination State
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(9); // 9 cards fits a 3x3 grid nicely
+  const [rowsPerPage, setRowsPerPage] = useState(9);
   const [count, setCount] = useState(0);
 
   // Modal State
@@ -29,19 +32,17 @@ const Clients = () => {
   // Fetch Data with Pagination
   useEffect(() => {
     fetchCareHomes();
-  }, [page, rowsPerPage]); // Re-run when page changes
+  }, [page, rowsPerPage]);
 
   const fetchCareHomes = async () => {
     setLoading(true);
     
-    // Calculate range (0-8, 9-17, etc.)
     const from = page * rowsPerPage;
     const to = from + rowsPerPage - 1;
 
-    // NOTE: Logic kept the same. Ensure your Supabase table is still named 'care_homes'
     const { data, error, count } = await supabase
       .from('care_homes')
-      .select('*', { count: 'exact' }) // Get total count for pagination math
+      .select('*', { count: 'exact' })
       .order('name', { ascending: true })
       .range(from, to);
 
@@ -75,7 +76,6 @@ const Clients = () => {
       return alert("Name and Address are required");
     }
 
-    // NOTE: Logic kept the same. Keys match DB columns.
     const { error } = await supabase
       .from('care_homes')
       .insert([{
@@ -91,7 +91,7 @@ const Clients = () => {
     } else {
       alert('Client added successfully!');
       setModalOpen(false);
-      fetchCareHomes(); // Refresh list
+      fetchCareHomes();
     }
   };
 
@@ -106,12 +106,20 @@ const Clients = () => {
   };
 
   return (
-    <Box sx={{ p: 3, bgcolor: '#f7f9fc', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ p: { xs: 1, sm: 3 }, bgcolor: '#f7f9fc', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" sx={{ fontFamily: 'serif', fontWeight: 500 }}>Clients</Typography>
-        <Button variant="contained" startIcon={<Add />} onClick={handleOpenModal}>
+      {/* Header - Stack on mobile */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, mb: 3, flexDirection: { xs: 'column', sm: 'row' }, gap: 2 }}>
+        <Typography variant="h4" sx={{ fontFamily: 'serif', fontWeight: 500, fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+          Clients
+        </Typography>
+        <Button 
+          variant="contained" 
+          startIcon={<Add />} 
+          onClick={handleOpenModal}
+          fullWidth={isMobile} // Full width on mobile
+          sx={{ py: 1.5 }}
+        >
           Add Client
         </Button>
       </Box>
@@ -123,7 +131,7 @@ const Clients = () => {
         </Box>
       ) : (
         <>
-          <Grid container spacing={3}>
+          <Grid container spacing={2} sx={{ mb: 2 }}>
             {homes.length === 0 ? (
                <Grid item xs={12}>
                  <Typography align="center" color="text.secondary" sx={{ mt: 5 }}>
@@ -132,7 +140,8 @@ const Clients = () => {
                </Grid>
             ) : (
               homes.map((home) => (
-                <Grid item xs={12} md={6} lg={4} key={home.id}>
+                // RESPONSIVE GRID: Full width mobile, half tablet, third desktop
+                <Grid item xs={12} sm={6} md={4} key={home.id}>
                   <Card 
                     sx={{ 
                       height: '100%', 
@@ -151,7 +160,7 @@ const Clients = () => {
                       
                       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1 }}>
                         <LocationOn sx={{ fontSize: 16, mt: 0.5, color: 'text.secondary' }} />
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" color="textSecondary" sx={{ wordBreak: 'break-word' }}>
                           {home.address || 'No address provided'}
                         </Typography>
                       </Box>
@@ -166,11 +175,11 @@ const Clients = () => {
                       {home.phone && (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                           <Phone sx={{ fontSize: 16, color: 'text.secondary' }} />
-                          <Typography variant="body2">{home.phone}</Typography>
+                          <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{home.phone}</Typography>
                         </Box>
                       )}
 
-                      <Box sx={{ display: 'flex', gap: 1, mt: 'auto' }}>
+                      <Box sx={{ display: 'flex', gap: 1, mt: 'auto', flexWrap: 'wrap' }}>
                         <Chip 
                           icon={<Bed sx={{ fontSize: 16 }} />} 
                           label={`${home.beds || 0} Beds`} 
@@ -197,6 +206,8 @@ const Clients = () => {
                 page={page}
                 onPageChange={handleChangePage}
                 onRowsPerPageChange={handleChangeRowsPerPage}
+                // Hide "Rows per page" label on mobile to save space
+                labelRowsPerPage={isMobile ? '' : 'Rows per page:'}
               />
           </Box>
         </>
@@ -217,15 +228,17 @@ const Clients = () => {
               type="text" fullWidth variant="outlined" size="small" multiline rows={2}
               value={formData.address} onChange={handleChange}
             />
+            
+            {/* RESPONSIVE GRID IN MODAL */}
             <Grid container spacing={2}>
-              <Grid item xs={6}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   margin="dense" name="contact_name" label="Contact Name"
                   type="text" fullWidth variant="outlined" size="small"
                   value={formData.contact_name} onChange={handleChange}
                 />
               </Grid>
-              <Grid item xs={6}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   margin="dense" name="phone" label="Phone Number"
                   type="text" fullWidth variant="outlined" size="small"
@@ -233,6 +246,7 @@ const Clients = () => {
                 />
               </Grid>
             </Grid>
+
             <TextField
               margin="dense" name="beds" label="Total Beds"
               type="number" fullWidth variant="outlined" size="small"

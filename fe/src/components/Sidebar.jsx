@@ -1,68 +1,52 @@
-import React, { useState, useEffect } from 'react'; // 1. Import useState and useEffect
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box, List, ListItem, ListItemButton, ListItemIcon, 
-  ListItemText, Typography, Divider, Avatar, Badge, Button 
+  ListItemText, Typography, Divider, Avatar, Badge, Button, IconButton
 } from '@mui/material';
 import { 
   Dashboard as DashboardIcon, People as PeopleIcon, Business as BusinessIcon, 
   EventNote as EventNoteIcon, CalendarMonth as CalendarMonthIcon, 
   CheckCircle as CheckCircleIcon, AccessTime as AccessTimeIcon, 
-  Shield as ShieldIcon, Logout as LogoutIcon , PersonAdd as PersonAddIcon 
+  Shield as ShieldIcon, Logout as LogoutIcon , PersonAdd as PersonAddIcon,
+  Close as CloseIcon // Import Close icon
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient'; 
 
-const Sidebar = () => {
+const Sidebar = ({ onClose }) => { // Accept onClose prop
   const navigate = useNavigate();
   const location = useLocation();
 
-  // 2. State to hold the current user object
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // 3. Function to get the initial session
     const getUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
     };
-
     getUser();
-
-    // 4. Listen for auth changes (e.g., login, logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
-
-    // Cleanup subscription on unmount
     return () => subscription.unsubscribe();
   }, []);
 
-  // 5. Helper to get display name (Check metadata, fallback to email)
   const getDisplayName = () => {
     if (!user) return 'Guest';
-    
-    // Check if full name exists in user_metadata (set during signup)
     if (user.user_metadata?.full_name) return user.user_metadata.full_name;
     if (user.user_metadata?.name) return user.user_metadata.name;
-    
-    // Fallback to email address if no name is found
     return user.email;
   };
 
-  // 6. Helper to generate initials for the Avatar
   const getInitials = (name) => {
     if (!name) return 'U';
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
+    return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login'); 
+    if(onClose) onClose(); // Close sidebar on logout
   };
 
   const menuItems = [
@@ -77,7 +61,6 @@ const Sidebar = () => {
     { text: 'Add users', icon: <PersonAddIcon />, path: '/add-staff', section: 'Main' }
   ];
 
-  // Group items by section
   const mainItems = menuItems.filter(i => i.section === 'Main');
   const schedulingItems = menuItems.filter(i => i.section === 'Scheduling');
   const complianceItems = menuItems.filter(i => i.section === 'Compliance');
@@ -92,7 +75,10 @@ const Sidebar = () => {
           <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
             <ListItemButton
               selected={location.pathname === item.path}
-              onClick={() => navigate(item.path)}
+              onClick={() => {
+                navigate(item.path);
+                if(onClose) onClose(); // Close sidebar on navigation (Mobile)
+              }}
               sx={{
                 minHeight: 40,
                 justifyContent: 'initial',
@@ -110,11 +96,6 @@ const Sidebar = () => {
                 {item.icon}
               </ListItemIcon>
               <ListItemText primary={item.text} primaryTypographyProps={{ fontSize: 14 }} />
-              {item.badge && (
-                <Badge badgeContent={item.badge} color="secondary" sx={{ ml: 'auto' }}>
-                  <Box />
-                </Badge>
-              )}
             </ListItemButton>
           </ListItem>
         ))}
@@ -127,13 +108,22 @@ const Sidebar = () => {
   return (
     <Box sx={{ width: 260, bgcolor: '#0c1f3f', color: 'white', display: 'flex', flexDirection: 'column', height: '100vh', flexShrink: 0 }}>
       {/* Header */}
-      <Box sx={{ p: 3, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-        <Typography variant="h6" noWrap component="div" sx={{ fontFamily: 'serif', fontWeight: 'bold' }}>
-          SM Heath
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Staffing Portal
-        </Typography>
+      <Box sx={{ p: 3, borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+            <Typography variant="h6" noWrap component="div" sx={{ fontFamily: 'serif', fontWeight: 'bold' }}>
+            SM Heath
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Staffing Portal
+            </Typography>
+        </Box>
+        {/* Close Button (Visible on Mobile) */}
+        <IconButton 
+            onClick={onClose} 
+            sx={{ color: 'white', display: { xs: 'flex', md: 'none' } }}
+        >
+            <CloseIcon />
+        </IconButton>
       </Box>
 
       {/* Menu Items */}                
@@ -146,7 +136,6 @@ const Sidebar = () => {
       {/* Footer */}
       <Box sx={{ p: 3, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-          {/* 7. Updated Avatar and Typography to use dynamic data */}
           <Avatar sx={{ bgcolor: '#1a5fba', width: 32, height: 32 }}>
             {getInitials(displayName)}
           </Avatar>
@@ -155,7 +144,7 @@ const Sidebar = () => {
               {displayName}
             </Typography>
             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-              {user?.user_metadata?.role || 'Staff'} {/* Optional: Display role if stored in metadata */}
+              {user?.user_metadata?.role || 'Staff'}
             </Typography>
           </Box>
         </Box>

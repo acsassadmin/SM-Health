@@ -12,25 +12,17 @@ const LoginForm = () => {
   // --- GET FETCH FUNCTION ---
   const { fetchUserRole } = useRole(); 
 
+  // --- FORM STATE ---
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [totpCode, setTotpCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
-  const [requiresMFA, setRequiresMFA] = useState(false);
-  const [mfaFactorId, setMfaFactorId] = useState(null);
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
-    
-    if (requiresMFA) {
-      await verifyMFA();
-      return;
-    }
-
     setLoading(true);
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -39,120 +31,143 @@ const LoginForm = () => {
 
       if (error) throw error;
 
-      // Check for MFA Factors
-      const { data: factors } = await supabase.auth.mfa.listFactors();
-      
-      if (factors && factors.totp && factors.totp.length > 0) {
-        // 2FA is enabled, switch to code input view
-        setRequiresMFA(true);
-        setMfaFactorId(factors.totp[0].id);
-        setLoading(false);
-      } else {
-        // No 2FA: Fetch Role then Navigate
-        await fetchUserRole(data.user.id); 
+      if (data.user) {
+        // 1. Fetch Role and WAIT for it to finish
+        const role = await fetchUserRole(data.user.id);
+        
+        console.log("✅ Login Successful. Role:", role);
+        
+        // 2. Navigate to Dashboard ONLY after role is ready
         navigate('/dashboard');
       }
 
     } catch (err) {
-      setError(err.message);
-      setLoading(false);
-    }
-  };
-
-  const verifyMFA = async () => {
-    setLoading(true);
-    try {
-      // 1. Create Challenge
-      const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-        factorId: mfaFactorId,
-      });
-      if (challengeError) throw challengeError;
-
-      // 2. Verify Challenge
-      const { error } = await supabase.auth.mfa.verify({
-        factorId: mfaFactorId,
-        challengeId: challengeData.id,
-        code: totpCode,
-      });
-
-      if (error) throw error;
-
-      // 3. Get Current User Session (to ensure we have the ID)
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      // 4. Fetch Role then Navigate
-      if (user) {
-        await fetchUserRole(user.id);
-      }
-      
-      navigate('/dashboard');
-
-    } catch (err) {
-      setError('Invalid 2FA Code');
+      console.error("Login error:", err);
+      setError(err.message || "An unexpected error occurred during login.");
+    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Box sx={{ maxWidth: 400, mx: 'auto', mt: 8 }}>
-      <Card>
-        <CardContent sx={{ p: 4 }}>
-          <Typography variant="h5" gutterBottom align="center" fontWeight="bold">
+    <Box 
+      sx={{
+        // --- RESPONSIVE CONTAINER ---
+        minHeight: '100vh',        // Full height of the screen
+        display: 'flex',
+        alignItems: 'center',      // Vertically center
+        justifyContent: 'center',  // Horizontally center
+        bgcolor: '#f7f9fc',        // Background color matching app
+        p: 2,                      // Padding on mobile
+      }}
+    >
+      <Card 
+        sx={{ 
+          // --- RESPONSIVE CARD ---
+          width: '100%',           // Full width on mobile
+          maxWidth: { xs: '100%', sm: '400px' }, // Constrain width on tablet/desktop
+          boxShadow: 3,            // Slight elevation
+          borderRadius: 2,         // Rounded corners
+        }}
+      >
+        <CardContent sx={{ p: { xs: 3, sm: 4 } }}> {/* Less padding on mobile to save space */}
+          
+          {/* Header */}
+          <Typography 
+            variant="h4" 
+            component="h1"
+            gutterBottom 
+            align="center" 
+            fontWeight="bold"
+            sx={{ 
+              color: '#1a5fba', // Brand Color
+              fontSize: { xs: '1.75rem', sm: '2rem' } // Slightly smaller font on mobile
+            }}
+          >
             SM Heath Login
           </Typography>
           
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <Typography 
+            variant="body2" 
+            align="center" 
+            sx={{ mb: 3, color: 'text.secondary' }}
+          >
+            Please sign in to continue
+          </Typography>
+          
+          {/* Error Alert */}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
 
           <form onSubmit={handleLogin}>
-            {!requiresMFA ? (
-              <>
-                <TextField
-                  fullWidth label="Email" type="email" margin="normal"
-                  value={email} onChange={(e) => setEmail(e.target.value)} 
-                  disabled={loading}
-                  required
-                />
-                <TextField
-                  fullWidth label="Password" type="password" margin="normal"
-                  value={password} onChange={(e) => setPassword(e.target.value)} 
-                  disabled={loading}
-                  required
-                />
-                <Button
-                  fullWidth variant="contained" type="submit" sx={{ mt: 3 }}
-                  disabled={loading}
-                >
-                  {loading ? 'Verifying...' : 'Sign In'}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  2FA Required. Please enter the code from your authenticator app.
-                </Alert>
-                <TextField
-                  fullWidth label="6-Digit Code" margin="normal"
-                  value={totpCode} 
-                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  inputProps={{ maxLength: 6, style: { textAlign: 'center', letterSpacing: '0.5em', fontSize: '1.5rem' } }}
-                  disabled={loading}
-                  autoFocus
-                  required
-                />
-                <Button
-                  fullWidth variant="contained" type="submit" sx={{ mt: 3 }}
-                  disabled={loading}
-                >
-                  {loading ? <CircularProgress size={24} color="inherit" /> : 'Verify'}
-                </Button>
-                <Button
-                  fullWidth variant="text" sx={{ mt: 1 }}
-                  onClick={() => { setRequiresMFA(false); setLoading(false); }}
-                >
-                  Back
-                </Button>
-              </>
-            )}
+            {/* Email Input */}
+            <TextField
+              fullWidth
+              label="Email Address"
+              type="email"
+              margin="normal"
+              variant="outlined"
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              disabled={loading}
+              required
+              autoComplete="email"
+              autoFocus
+              size="medium" // Larger touch target on mobile
+            />
+
+            {/* Password Input */}
+            <TextField
+              fullWidth
+              label="Password"
+              type="password"
+              margin="normal"
+              variant="outlined"
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              disabled={loading}
+              required
+              autoComplete="current-password"
+              size="medium"
+            />
+
+            {/* Submit Button */}
+            <Button
+              fullWidth
+              variant="contained"
+              type="submit" 
+              sx={{ 
+                mt: 3, 
+                mb: 2,
+                py: 1.5,               // Taller button for easier tapping
+                fontSize: '1rem',      // Larger text
+                backgroundColor: '#1a5fba', 
+                textTransform: 'none', // Keep text readable (don't force uppercase)
+                '&:hover': {
+                  backgroundColor: '#0f4d9a', 
+                }
+              }}
+              disabled={loading}
+            >
+              {loading ? <CircularProgress size={24} color="inherit" /> : 'Sign In'}
+            </Button>
+            
+            {/* Optional: Forgot Password Link */}
+            <Box sx={{ textAlign: 'center', mt: 1 }}>
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  color: 'text.secondary', 
+                  cursor: 'pointer',
+                  '&:hover': { textDecoration: 'underline', color: '#1a5fba' }
+                }}
+              >
+                Forgot your password?
+              </Typography>
+            </Box>
           </form>
         </CardContent>
       </Card>
