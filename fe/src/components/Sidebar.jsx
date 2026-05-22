@@ -2,18 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box, List, ListItem, ListItemButton, ListItemIcon, 
-  ListItemText, Typography, Divider, Avatar, Badge, Button, IconButton
+  ListItemText, Typography, Divider, Avatar, Badge, Button 
 } from '@mui/material';
 import { 
   Dashboard as DashboardIcon, People as PeopleIcon, Business as BusinessIcon, 
   EventNote as EventNoteIcon, CalendarMonth as CalendarMonthIcon, 
   CheckCircle as CheckCircleIcon, AccessTime as AccessTimeIcon, 
   Shield as ShieldIcon, Logout as LogoutIcon , PersonAdd as PersonAddIcon,
-  Close as CloseIcon // Import Close icon
+  Settings as SettingsIcon 
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient'; 
 
-const Sidebar = ({ onClose }) => { // Accept onClose prop
+const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -40,13 +40,17 @@ const Sidebar = ({ onClose }) => { // Accept onClose prop
 
   const getInitials = (name) => {
     if (!name) return 'U';
-    return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login'); 
-    if(onClose) onClose(); // Close sidebar on logout
   };
 
   const menuItems = [
@@ -58,8 +62,23 @@ const Sidebar = ({ onClose }) => { // Accept onClose prop
     { text: 'Availability', icon: <CheckCircleIcon />, path: '/availability', section: 'Compliance' },
     { text: 'Timesheets', icon: <AccessTimeIcon />, path: '/timesheets', section: 'Compliance' },
     { text: 'Compliance', icon: <ShieldIcon />, path: '/compliance', section: 'Compliance' },
-    { text: 'Add users', icon: <PersonAddIcon />, path: '/add-staff', section: 'Main' }
+    { text: 'Add users', icon: <PersonAddIcon />, path: '/add-staff', section: 'Main' },
+    { text: 'Settings', icon: <SettingsIcon />, path: '/settings', section: 'Compliance' }
   ];
+
+  // Define specific colors for each icon to make them "Colorful" and "Attractive"
+  const iconColors = {
+    '/': '#60a5fa',          // Bright Blue (Dashboard)
+    '/staff': '#34d399',      // Emerald Green (Staff)
+    '/clients': '#818cf8',    // Indigo (Clients)
+    '/shifts': '#fbbf24',     // Amber (Shifts)
+    '/rota': '#22d3ee',       // Cyan (Rota)
+    '/availability': '#f472b6', // Pink (Availability)
+    '/timesheets': '#a3e635', // Lime (Timesheets)
+    '/compliance': '#f87171', // Red (Compliance)
+    '/add-staff': '#8b5cf6',  // Violet (Add Staff)
+    '/settings': '#94a3b8'    // Slate (Settings)
+  };
 
   const mainItems = menuItems.filter(i => i.section === 'Main');
   const schedulingItems = menuItems.filter(i => i.section === 'Scheduling');
@@ -67,38 +86,53 @@ const Sidebar = ({ onClose }) => { // Accept onClose prop
 
   const renderSection = (title, items) => (
     <Box sx={{ mb: 2 }}>
-      <Typography variant="caption" sx={{ px: 3, py: 1, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 'bold', fontSize: 11 }}>
+      <Typography variant="caption" sx={{ px: 3, py: 1, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 'bold', fontSize: 11, letterSpacing: 1 }}>
         {title}
       </Typography>
       <List sx={{ py: 0 }}>
-        {items.map((item) => (
-          <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
-            <ListItemButton
-              selected={location.pathname === item.path}
-              onClick={() => {
-                navigate(item.path);
-                if(onClose) onClose(); // Close sidebar on navigation (Mobile)
-              }}
-              sx={{
-                minHeight: 40,
-                justifyContent: 'initial',
-                px: 3,
-                mx: 1,
-                mb: 0.5,
-                borderRadius: 1,
-                bgcolor: location.pathname === item.path ? 'primary.main' : 'transparent',
-                color: location.pathname === item.path ? 'white' : 'rgba(255,255,255,0.7)',
-                '&.Mui-selected': { bgcolor: '#1a5fba' },
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' }
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 0, mr: 3, justifyContent: 'center', color: 'inherit' }}>
-                {item.icon}
-              </ListItemIcon>
-              <ListItemText primary={item.text} primaryTypographyProps={{ fontSize: 14 }} />
-            </ListItemButton>
-          </ListItem>
-        ))}
+        {items.map((item) => {
+          const isSelected = location.pathname === item.path;
+          const iconColor = isSelected ? '#fff' : (iconColors[item.path] || 'rgba(255,255,255,0.7)');
+          
+          return (
+            <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
+              <ListItemButton
+                selected={isSelected}
+                onClick={() => navigate(item.path)}
+                sx={{
+                  minHeight: 44,
+                  justifyContent: 'initial',
+                  px: 2.5,
+                  mx: 1,
+                  mb: 0.5,
+                  borderRadius: 1.5,
+                  // Gradient background for active state
+                  bgcolor: isSelected ? 'rgba(26, 95, 186, 0.9)' : 'transparent',
+                  color: isSelected ? '#fff' : 'rgba(255,255,255,0.7)',
+                  transition: 'all 0.2s ease-in-out',
+                  borderLeft: isSelected ? '4px solid #fff' : '4px solid transparent', // Attractive accent border
+                  '&:hover': { 
+                    bgcolor: isSelected ? 'rgba(26, 95, 186, 1)' : 'rgba(255,255,255,0.08)' 
+                  },
+                  '& .MuiListItemIcon-root': {
+                    color: iconColor // Apply dynamic color
+                  }
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 0, mr: 3, justifyContent: 'center' }}>
+                  {item.icon}
+                </ListItemIcon>
+                <ListItemText 
+                  primary={item.text} 
+                  primaryTypographyProps={{ 
+                    fontSize: 14, 
+                    fontWeight: isSelected ? 600 : 400 // Bold text when active
+                  }} 
+                />
+              </ListItemButton>
+            </ListItem>
+          );
+        })}
       </List>
     </Box>
   );
@@ -106,44 +140,55 @@ const Sidebar = ({ onClose }) => { // Accept onClose prop
   const displayName = getDisplayName();
 
   return (
-    <Box sx={{ width: 260, bgcolor: '#0c1f3f', color: 'white', display: 'flex', flexDirection: 'column', height: '100vh', flexShrink: 0 }}>
+    <Box sx={{ width: 260, bgcolor: '#0c1f3f', color: 'white', display: 'flex', flexDirection: 'column', height: '100vh', flexShrink: 0, boxShadow: '4px 0 24px rgba(0,0,0,0.1)' }}>
       {/* Header */}
-      <Box sx={{ p: 3, borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-            <Typography variant="h6" noWrap component="div" sx={{ fontFamily: 'serif', fontWeight: 'bold' }}>
-            SM Heath
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Staffing Portal
+      <Box sx={{ p: 3.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+            <Box sx={{ 
+                width: 32, height: 32, borderRadius: 2, 
+                bgcolor: '#1a5fba', 
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 4px 12px rgba(26,95,186,0.4)'
+            }}>
+                {/* Simple SVG Cross Logo matching HTML */}
+                <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+                    <rect x="9" y="3" width="4" height="16" rx="1.5" fill="#fff"/>
+                    <rect x="3" y="9" width="16" height="4" rx="1.5" fill="#fff"/>
+                    <circle cx="11" cy="11" r="2.5" fill="rgba(255,255,255,.35)"/>
+                </svg>
+            </Box>
+            <Typography variant="h6" noWrap component="div" sx={{ fontFamily: 'serif', fontWeight: 700, fontSize: 18, lineHeight: 1 }}>
+                SM Heath
             </Typography>
         </Box>
-        {/* Close Button (Visible on Mobile) */}
-        <IconButton 
-            onClick={onClose} 
-            sx={{ color: 'white', display: { xs: 'flex', md: 'none' } }}
-        >
-            <CloseIcon />
-        </IconButton>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 1.2, fontSize: 10, ml: 1 }}>
+            Staffing Portal
+        </Typography>
       </Box>
 
       {/* Menu Items */}                
-      <Box sx={{ flex: 1, overflowY: 'auto', py: 2 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', py: 2, scrollbarWidth: 'thin', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { background: 'rgba(255,255,255,0.2)', borderRadius: 4 } }}>
         {renderSection('Main', mainItems)}
         {renderSection('Scheduling', schedulingItems)}
         {renderSection('Compliance', complianceItems)}
       </Box>
 
       {/* Footer */}
-      <Box sx={{ p: 3, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-          <Avatar sx={{ bgcolor: '#1a5fba', width: 32, height: 32 }}>
+      <Box sx={{ p: 3, borderTop: '1px solid rgba(255,255,255,0.08)', bgcolor: 'rgba(0,0,0,0.1)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2.5, cursor: 'pointer' }} onClick={() => navigate('/settings')}>
+          <Avatar sx={{ 
+            bgcolor: '#1a5fba', 
+            width: 36, height: 36, 
+            border: '2px solid rgba(255,255,255,0.2)',
+            fontWeight: 'bold', fontSize: 14
+          }}>
             {getInitials(displayName)}
           </Avatar>
-          <Box>
-            <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'white', lineHeight: 1.2 }}>
+          <Box sx={{ overflow: 'hidden' }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, color: '#fff', lineHeight: 1.3, whiteSpace: 'nowrap' }}>
               {displayName}
             </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'capitalize' }}>
               {user?.user_metadata?.role || 'Staff'}
             </Typography>
           </Box>
@@ -155,14 +200,17 @@ const Sidebar = ({ onClose }) => { // Accept onClose prop
           startIcon={<LogoutIcon />}
           onClick={handleLogout}
           sx={{
-            borderColor: 'rgba(255,255,255,0.3)',
-            color: 'rgba(255,255,255,0.8)',
+            borderColor: 'rgba(255,255,255,0.2)',
+            color: 'rgba(255,255,255,0.7)',
             textTransform: 'none',
-            fontSize: '0.875rem',
+            fontSize: '0.85rem',
+            py: 1,
+            borderRadius: 1.5,
+            transition: '0.2s',
             '&:hover': {
-              borderColor: '#fff',
-              color: '#fff',
-              bgcolor: 'rgba(255,255,255,0.05)'
+              borderColor: '#ef4444',
+              color: '#ef4444',
+              bgcolor: 'rgba(239, 68, 68, 0.05)'
             }
           }}
         >

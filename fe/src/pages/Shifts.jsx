@@ -37,7 +37,7 @@ const Shifts = () => {
     date: new Date().toISOString().split('T')[0],
     start_time: '',
     end_time: '',
-    role: 'Carer',
+    role: '', 
     client_id: '',
     notes: '',
     pattern_code: ''
@@ -47,11 +47,13 @@ const Shifts = () => {
   const [clients, setClients] = useState([]);
   const [availableStaff, setAvailableStaff] = useState([]);
   const [shiftPatterns, setShiftPatterns] = useState([]);
+  const [roleCategories, setRoleCategories] = useState([]); 
 
   useEffect(() => {
     fetchShifts();
     fetchClients();
     fetchShiftPatterns();
+    fetchRoleCategories(); 
   }, []);
 
   const fetchShifts = async () => {
@@ -70,7 +72,7 @@ const Shifts = () => {
           assigned_id,
           notes,
           care_homes!left (name),
-          staff!left (first_name, last_name) 
+          staff!left (id, first_name, last_name) 
         `)
         .order('date', { ascending: true });
 
@@ -103,8 +105,27 @@ const Shifts = () => {
     }
   };
 
+  const fetchRoleCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('staff_role_categories')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (error) throw error;
+      
+      if (data && data.length > 0 && !formData.role) {
+        setFormData(prev => ({ ...prev, role: data[0].name }));
+      }
+      
+      setRoleCategories(data || []);
+    } catch (err) {
+      console.error("Error fetching role categories:", err);
+    }
+  };
+
   const fetchAvailableStaff = async (role) => {
-    console.log("Fetching staff for role:", role);
     const { data, error } = await supabase
       .from('staff')
       .select('id, first_name, last_name')
@@ -113,37 +134,171 @@ const Shifts = () => {
     if (error) {
       console.error("Error fetching staff:", error);
     } else {
-      console.log("Found staff:", data);
       setAvailableStaff(data || []);
     }
   };
 
-  const filteredShifts = shifts.filter((shift) => {
-    if (tabValue === 'open' && shift.assigned_id) return false;
-    if (tabValue === 'covered' && !shift.assigned_id) return false;
+  // --- TIMESHEETS ENGINE HELPER ---
+  const syncTimesheetRecord = async (shiftId, date, startTime, endTime, clientId, staffId) => {
+    try {
+      // 1. Calculate calculated shifts parameters safely
+      const startH = parseInt(startTime.split(':')[0]) || 0;
+      const endH = parseInt(endTime.split(':')[0]) || 0;
+      let hours = endH - startH;
+      if (hours <= 0) hours += 24;
 
-    const term = searchTerm.toLowerCase();
-    const careHomeName = shift.care_homes?.name || '';
-    const staffFullName = shift.staff
-      ? `${shift.staff.first_name} ${shift.staff.last_name}`.toLowerCase()
-      : '';
+      // Get accurate customer name reference
+      const { data: clientObj } = await supabase.from('care_homes').select('name').eq('id', clientId).single();
+      const clientName = clientObj?.name || 'Unknown';
 
-    return (
-      careHomeName.toLowerCase().includes(term) ||
-      shift.role.toLowerCase().includes(term) ||
-      staffFullName.includes(term)
-    );
-  });
+      if (!staffId) {
+        // If no one is assigned, ensure no dangling pending timesheets exist for this shift
+        await supabase.from('timesheets').delete().eq('shift_id', shiftId).eq('status', 'pending');
+        return;
+      }
 
-  const handleTabChange = (event, newValue) => {
-    setTabValue(newValue);
+      // Get precise staff profile identities
+      const { data: staffObj } = await supabase.from('staff').select('first_name, last_name').eq('id', staffId).single();
+      if (!staffObj) return;
+      const staffFullName = `${staffObj.first_name} ${staffObj.last_name}`;
+
+      // Upsert entry seamlessly based on unique `shift_id` identifier
+      const { error } = await supabase
+        .from('timesheets')
+        .upsert({
+          shift_id: shiftId,
+          staff_id: staffId,
+          staff_name: staffFullName,
+          date: date,
+          start_time: startTime,
+          end_time: endTime,
+          client_name: clientName,
+          hours_worked: hours,
+          status: 'pending'
+        }, { onConflict: 'shift_id' });
+
+      if (error) throw error;
+    } catch (err) {
+      console.error("Critical fail sync with timesheets system database:", err);
+    }
+  };
+
+  // --- ACTIONS ---
+  const handleSaveShift = async () => {
+    if (!formData.client_id) {
+      alert("Please select a Client.");
+      return;
+    }
+    if (!formData.pattern_code) {
+      alert("Please select a Shift Time pattern.");
+      return;
+    }
+
+    try {
+      let activeShiftId = editingShiftId;
+
+      if (isEditing && editingShiftId) {
+        const { error } = await supabase
+          .from('shifts')
+          .update({
+            client_id: formData.client_id,
+            date: formData.date,
+            start_time: formData.start_time,
+            end_time: formData.end_time,
+            role: formData.role,
+            notes: formData.notes
+          })
+          .eq('id', editingShiftId);
+        if (error) throw error;
+
+        // Fetch assignment value context to run updates if changing global times
+        const currentShift = shifts.find(s => s.id === editingShiftId);
+        if (currentShift && currentShift.assigned_id) {
+          await syncTimesheetRecord(
+            editingShiftId,
+            formData.date,
+            formData.start_time,
+            formData.end_time,
+            formData.client_id,
+            currentShift.assigned_id
+          );
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('shifts')
+          .insert([{
+            client_id: formData.client_id,
+            date: formData.date,
+            start_time: formData.start_time,
+            end_time: formData.end_time,
+            role: formData.role,
+            notes: formData.notes
+          }])
+          .select();
+        if (error) throw error;
+        if (data && data.length > 0) activeShiftId = data[0].id;
+      }
+
+      setIsCreateModalOpen(false);
+      fetchShifts();
+    } catch (err) {
+      console.error("Error saving shift:", err);
+      alert("Failed to save shift.");
+    }
+  };
+
+  const handleAssignStaff = async (staffId) => {
+    if (!selectedShift) return;
+    try {
+      const { error } = await supabase
+        .from('shifts')
+        .update({ assigned_id: staffId })
+        .eq('id', selectedShift.id);
+      if (error) throw error;
+
+      // Sync and inject data automatically inside Timesheet DB
+      await syncTimesheetRecord(
+        selectedShift.id,
+        selectedShift.date,
+        selectedShift.start_time,
+        selectedShift.end_time,
+        selectedShift.client_id,
+        staffId
+      );
+
+      setIsAssignModalOpen(false);
+      fetchShifts();
+    } catch (err) {
+      console.error("Error assigning staff:", err);
+      alert("Failed to assign staff.");
+    }
+  };
+
+  const handleUnassign = async (id) => {
+    if (!window.confirm("Remove staff assignment?")) return;
+    try {
+      const { error } = await supabase.from('shifts').update({ assigned_id: null }).eq('id', id);
+      if (error) throw error;
+
+      // Drop/Clear the connection to the pending entries inside Timesheet record automatically
+      await supabase.from('timesheets').delete().eq('shift_id', id).eq('status', 'pending');
+      
+      fetchShifts();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to unassign.");
+    }
   };
 
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this shift?')) {
       try {
+        // Drop the connected pending timesheet before removing the core shift instance
+        await supabase.from('timesheets').delete().eq('shift_id', id).eq('status', 'pending');
+
         const { error } = await supabase.from('shifts').delete().eq('id', id);
         if (error) throw error;
+        
         fetchShifts();
       } catch (err) {
         console.error("Error deleting shift:", err);
@@ -169,11 +324,13 @@ const Shifts = () => {
   const handleOpenCreateModal = () => {
     setIsEditing(false);
     setEditingShiftId(null);
+    const defaultRole = roleCategories.length > 0 ? roleCategories[0].name : '';
+    
     setFormData({
       date: new Date().toISOString().split('T')[0],
       start_time: '',
       end_time: '',
-      role: 'Carer',
+      role: defaultRole,
       client_id: '',
       notes: '',
       pattern_code: ''
@@ -203,75 +360,6 @@ const Shifts = () => {
     setIsCreateModalOpen(true);
   };
 
-  const handleSaveShift = async () => {
-    if (!formData.client_id) {
-      alert("Please select a Client.");
-      return;
-    }
-    if (!formData.pattern_code) {
-      alert("Please select a Shift Time pattern.");
-      return;
-    }
-
-    try {
-      if (isEditing && editingShiftId) {
-        const { error } = await supabase
-          .from('shifts')
-          .update({
-            client_id: formData.client_id,
-            date: formData.date,
-            start_time: formData.start_time,
-            end_time: formData.end_time,
-            role: formData.role,
-            notes: formData.notes
-          })
-          .eq('id', editingShiftId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('shifts').insert([{
-          client_id: formData.client_id,
-          date: formData.date,
-          start_time: formData.start_time,
-          end_time: formData.end_time,
-          role: formData.role,
-          notes: formData.notes
-        }]);
-        if (error) throw error;
-      }
-
-      setIsCreateModalOpen(false);
-      fetchShifts();
-    } catch (err) {
-      console.error("Error saving shift:", err);
-      alert("Failed to save shift.");
-    }
-  };
-
-  const createTimesheetEntry = async (shiftData, staffData) => {
-    const startH = parseInt(shiftData.start_time.split(':')[0]);
-    const endH = parseInt(shiftData.end_time.split(':')[0]);
-    let hours = endH - startH;
-    if (hours < 0) hours += 24;
-    try {
-      const { error } = await supabase
-        .from('timesheets')
-        .insert([{
-          shift_id: shiftData.id,
-          staff_id: staffData.id,
-          staff_name: `${staffData.first_name} ${staffData.last_name}`,
-          date: shiftData.date,
-          start_time: shiftData.start_time,
-          end_time: shiftData.end_time,
-          client_name: shiftData.care_homes?.name || 'Unknown',
-          hours_worked: hours,
-          status: 'pending'
-        }]);
-      if (error) console.error("Failed to create auto-timesheet:", error);
-    } catch (err) {
-      console.error("Timesheet creation error:", err);
-    }
-  };
-
   const handleOpenAssignModal = (shift) => {
     setSelectedShift(shift);
     setAvailableStaff([]);
@@ -279,40 +367,25 @@ const Shifts = () => {
     setIsAssignModalOpen(true);
   };
 
-  const handleAssignStaff = async (staffId) => {
-    if (!selectedShift) return;
-    try {
-      const { error } = await supabase
-        .from('shifts')
-        .update({ assigned_id: staffId })
-        .eq('id', selectedShift.id);
-      if (error) throw error;
-      const { data: staffData } = await supabase
-        .from('staff')
-        .select('*')
-        .eq('id', staffId)
-        .single();
-      if (staffData) {
-        await createTimesheetEntry(selectedShift, staffData);
-      }
-      setIsAssignModalOpen(false);
-      fetchShifts();
-    } catch (err) {
-      console.error("Error assigning staff:", err);
-      alert("Failed to assign staff.");
-    }
-  };
+  const filteredShifts = shifts.filter((shift) => {
+    if (tabValue === 'open' && shift.assigned_id) return false;
+    if (tabValue === 'covered' && !shift.assigned_id) return false;
 
-  const handleUnassign = async (id) => {
-    if (!window.confirm("Remove staff assignment?")) return;
-    try {
-      const { error } = await supabase.from('shifts').update({ assigned_id: null }).eq('id', id);
-      if (error) throw error;
-      fetchShifts();
-    } catch (err) {
-      console.error(err);
-      alert("Failed to unassign.");
-    }
+    const term = searchTerm.toLowerCase();
+    const careHomeName = shift.care_homes?.name || '';
+    const staffFullName = shift.staff
+      ? `${shift.staff.first_name} ${shift.staff.last_name}`.toLowerCase()
+      : '';
+
+    return (
+      careHomeName.toLowerCase().includes(term) ||
+      shift.role.toLowerCase().includes(term) ||
+      staffFullName.includes(term)
+    );
+  });
+
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
   };
 
   const ShiftCard = ({ shift }) => (
@@ -516,31 +589,16 @@ const Shifts = () => {
         maxWidth="md"
         fullWidth
         PaperProps={{
-          sx: {
-            borderRadius: 4,
-            boxShadow: '0 24px 54px rgba(0,0,0,0.15)',
-            overflow: 'hidden'
-          }
+          sx: { borderRadius: 4, boxShadow: '0 24px 54px rgba(0,0,0,0.15)', overflow: 'hidden' }
         }}
       >
-        {/* Header */}
         <Box sx={{
           background: 'linear-gradient(135deg, #1a5fba 0%, #0c1f3f 100%)',
-          color: 'white',
-          py: 4,
-          px: 4,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 2
+          color: 'white', py: 4, px: 4, display: 'flex', alignItems: 'center', gap: 2
         }}>
           <Box sx={{
-            bgcolor: 'rgba(255,255,255,0.15)',
-            p: 1.5,
-            borderRadius: 3,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(4px)'
+            bgcolor: 'rgba(255,255,255,0.15)', p: 1.5, borderRadius: 3,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
           }}>
             <Schedule sx={{ fontSize: 32 }} />
           </Box>
@@ -556,92 +614,76 @@ const Shifts = () => {
 
         <DialogContent sx={{ p: 4, bgcolor: '#f8f9fa' }}>
           <Grid container spacing={3.5}>
-
-            {/* Row 1: CLIENT */}
             <Grid item xs={12}>
-              <Box sx={{ width: '100%' }}>
-                <FormControl fullWidth variant="outlined" sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                  <InputLabel id="client-select-label" shrink sx={{ transform: 'translate(14px, -6px) scale(0.75)' }}>
-                    Client *
-                  </InputLabel>
-                  <Select
-                    labelId="client-select-label"
-                    value={formData.client_id}
-                    displayEmpty
-                    notched
-                    label="Client *"
-                    onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-                    renderValue={(selected) => {
-                      if (!selected) {
-                        return <Typography color="textSecondary">Select a Client...</Typography>;
-                      }
-                      const client = clients.find(c => c.id === selected);
-                      return client ? client.name : '';
-                    }}
-                  >
-                    <MenuItem value="" disabled>
-                      <em>Select a Client...</em>
+              <FormControl fullWidth variant="outlined" sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <InputLabel id="client-select-label" shrink sx={{ transform: 'translate(14px, -6px) scale(0.75)' }}>
+                  Client *
+                </InputLabel>
+                <Select
+                  labelId="client-select-label"
+                  value={formData.client_id}
+                  displayEmpty
+                  notched
+                  label="Client *"
+                  onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                  renderValue={(selected) => {
+                    if (!selected) return <Typography color="textSecondary">Select a Client...</Typography>;
+                    const client = clients.find(c => c.id === selected);
+                    return client ? client.name : '';
+                  }}
+                >
+                  <MenuItem value="" disabled><em>Select a Client...</em></MenuItem>
+                  {clients.map((c) => (
+                    <MenuItem key={c.id} value={c.id}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Business fontSize="small" color="action" />
+                        <Typography variant="body1">{c.name}</Typography>
+                      </Box>
                     </MenuItem>
-                    {clients.map((c) => (
-                      <MenuItem key={c.id} value={c.id}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <Business fontSize="small" color="action" />
-                          <Typography variant="body1">{c.name}</Typography>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Box>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
-            {/* Row 2: SHIFT TIME PATTERN */}
+
             <Grid item xs={12}>
-              <Box sx={{ width: '100%' }}>
-                <FormControl fullWidth variant="outlined" sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
-                  <InputLabel id="pattern-select-label" shrink sx={{ transform: 'translate(14px, -6px) scale(0.75)' }}>
-                    Shift Time Pattern *
-                  </InputLabel>
-                  <Select
-                    labelId="pattern-select-label"
-                    value={formData.pattern_code}
-                    displayEmpty
-                    notched
-                    label="Shift Time Pattern *"
-                    onChange={handleTimePatternChange}
-                    renderValue={(selected) => {
-                      if (!selected) {
-                        return <Typography color="textSecondary">Select a Time Pattern...</Typography>;
-                      }
-                      // Find the active pattern details so the selected value renders safely inside a proper Box layout container
-                      const pattern = shiftPatterns.find(p => p.code === selected);
-                      return pattern ? (
-                        <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                          {pattern.code} — {pattern.name} ({pattern.start_time?.substring(0, 5)} - {pattern.end_time?.substring(0, 5)})
+              <FormControl fullWidth variant="outlined" sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}>
+                <InputLabel id="pattern-select-label" shrink sx={{ transform: 'translate(14px, -6px) scale(0.75)' }}>
+                  Shift Time Pattern *
+                </InputLabel>
+                <Select
+                  labelId="pattern-select-label"
+                  value={formData.pattern_code}
+                  displayEmpty
+                  notched
+                  label="Shift Time Pattern *"
+                  onChange={handleTimePatternChange}
+                  renderValue={(selected) => {
+                    if (!selected) return <Typography color="textSecondary">Select a Time Pattern...</Typography>;
+                    const pattern = shiftPatterns.find(p => p.code === selected);
+                    return pattern ? (
+                      <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                        {pattern.code} — {pattern.name} ({pattern.start_time?.substring(0, 5)} - {pattern.end_time?.substring(0, 5)})
+                      </Typography>
+                    ) : selected;
+                  }}
+                >
+                  <MenuItem value="" disabled><em>Select a Time Pattern...</em></MenuItem>
+                  {shiftPatterns.map((p) => (
+                    <MenuItem key={p.code} value={p.code}>
+                      <Box sx={{ width: '100%', py: 0.5 }}>
+                        <Typography variant="body2" fontWeight="600" color="primary.main">
+                          {p.code} — {p.name}
                         </Typography>
-                      ) : selected;
-                    }}
-                  >
-                    <MenuItem value="" disabled>
-                      <em>Select a Time Pattern...</em>
+                        <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
+                          Time slot: {p.start_time?.substring(0, 5)} to {p.end_time?.substring(0, 5)}
+                        </Typography>
+                      </Box>
                     </MenuItem>
-                    {shiftPatterns.map((p) => (
-                      <MenuItem key={p.code} value={p.code}>
-                        <Box sx={{ width: '100%', py: 0.5 }}>
-                          <Typography variant="body2" fontWeight="600" color="primary.main">
-                            {p.code} — {p.name}
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
-                            Time slot: {p.start_time?.substring(0, 5)} to {p.end_time?.substring(0, 5)}
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Box>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
 
-            {/* Row 3: Split columns for DATE and ROLE */}
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
@@ -663,64 +705,34 @@ const Shifts = () => {
                   label="Role *"
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 >
-                  <MenuItem value="Carer">Carer</MenuItem>
-                  <MenuItem value="Senior Carer">Senior Carer</MenuItem>
-                  <MenuItem value="Nurse">Nurse</MenuItem>
-                  <MenuItem value="Senior Nurse">Senior Nurse</MenuItem>
-                  <MenuItem value="Support Worker">Support Worker</MenuItem>
+                  {roleCategories.map((cat) => (
+                    <MenuItem key={cat.id} value={cat.name}>{cat.name}</MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Grid>
 
-            {/* Row 4: NOTES */}
             <Grid item xs={12}>
               <TextField
                 fullWidth
                 multiline
                 rows={4}
                 label="Notes & Special Instructions"
-                placeholder="Add any specific requirements or handover details for this shift..."
+                placeholder="Add any specific requirements..."
                 InputLabelProps={{ shrink: true }}
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 sx={{ bgcolor: 'white', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
               />
             </Grid>
-
           </Grid>
         </DialogContent>
 
-        {/* Footer Actions */}
         <DialogActions sx={{ p: 3, px: 4, bgcolor: '#fff', borderTop: '1px solid #f0f0f0', gap: 1 }}>
-          <Button
-            onClick={() => setIsCreateModalOpen(false)}
-            sx={{
-              color: '#6c757d',
-              fontWeight: 600,
-              textTransform: 'none',
-              px: 3,
-              '&:hover': { bgcolor: '#f1f3f5' }
-            }}
-          >
+          <Button onClick={() => setIsCreateModalOpen(false)} sx={{ color: '#6c757d', fontWeight: 600, textTransform: 'none', px: 3 }}>
             Cancel
           </Button>
-          <Button
-            variant="contained"
-            onClick={handleSaveShift}
-            sx={{
-              bgcolor: '#1a5fba',
-              px: 4,
-              py: 1.25,
-              borderRadius: 2,
-              fontWeight: 'bold',
-              textTransform: 'none',
-              boxShadow: '0 8px 20px rgba(26, 95, 186, 0.25)',
-              '&:hover': {
-                bgcolor: '#154a96',
-                boxShadow: '0 8px 25px rgba(26, 95, 186, 0.35)'
-              }
-            }}
-          >
+          <Button variant="contained" onClick={handleSaveShift} sx={{ bgcolor: '#1a5fba', px: 4, py: 1.25, borderRadius: 2, fontWeight: 'bold', textTransform: 'none' }}>
             {isEditing ? 'Save Changes' : 'Schedule Shift'}
           </Button>
         </DialogActions>
@@ -737,13 +749,7 @@ const Shifts = () => {
         <DialogContent sx={{ p: 0 }}>
           {availableStaff.length === 0 ? (
             <Box sx={{ p: 3 }}>
-              <Alert severity="info">
-                No active staff found matching the role: <strong>{selectedShift?.role}</strong>.
-                <br />
-                <Typography variant="caption" sx={{ mt: 1 }}>
-                  Please check your Staff Directory to ensure staff have this exact role assigned.
-                </Typography>
-              </Alert>
+              <Alert severity="info">No active staff found matching the role: <strong>{selectedShift?.role}</strong>.</Alert>
             </Box>
           ) : (
             <TableContainer>
@@ -770,12 +776,7 @@ const Shifts = () => {
                       </TableCell>
                       <TableCell>{selectedShift?.role}</TableCell>
                       <TableCell align="right">
-                        <Button
-                          size="small"
-                          variant="contained"
-                          onClick={() => handleAssignStaff(staff.id)}
-                          startIcon={<Person />}
-                        >
+                        <Button size="small" variant="contained" onClick={() => handleAssignStaff(staff.id)} startIcon={<Person />}>
                           Assign
                         </Button>
                       </TableCell>
@@ -790,7 +791,6 @@ const Shifts = () => {
           <Button onClick={() => setIsAssignModalOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
-
     </Box>
   );
 };

@@ -119,7 +119,6 @@ function LayoutContent() {
           flexGrow: 1, 
           p: 3, 
           width: { md: `calc(100% - ${drawerWidth}px)` },
-          // Add padding to top so content isn't hidden behind AppBar
           mt: 8, 
           bgcolor: '#f7f9fc',
           minHeight: '100vh'
