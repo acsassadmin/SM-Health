@@ -13,7 +13,7 @@ export const RoleProvider = ({ children }) => {
   const activeExecutionId = useRef(0);
 
   const applyStaffFallback = (reason) => {
-    console.warn(`🛡️ [RoleContext] Emergency Fallback Active: ${reason}`);
+    console.warn(`🛡️ [RoleContext] Fallback: ${reason}`);
     setUserRole('Staff');
     setPermissions(['staff_read', 'rota_read', 'timesheets_submit', 'settings_read']);
     setLoading(false);
@@ -31,75 +31,93 @@ export const RoleProvider = ({ children }) => {
     activeExecutionId.current += 1;
     const currentExecutionId = activeExecutionId.current;
 
-    console.log("🔍 [RoleContext] Database query initiated for UID:", userId);
+    console.log("🔍 [RoleContext] Fetching Dynamic Role & Permissions for UID:", userId);
 
     try {
-      const { data: roleData, error } = await supabase
+      // STEP 1: Get role_id from user_roles
+      const { data: mappingData, error: mappingError } = await supabase
         .from('user_roles')
-        .select(`
-          role_id,
-          app_roles!inner (name, slug)
-        `)
+        .select('role_id')
         .eq('user_id', userId)
-        .maybeSingle(); 
+        .single(); 
 
-      if (error) {
-        console.error("❌ [RoleContext] Supabase Database Error Response:", error);
-        throw error;
+      if (mappingError) {
+        console.error("❌ [RoleContext] Mapping Error:", mappingError.message);
+        throw new Error("User role mapping not found");
       }
 
+      if (!mappingData || !mappingData.role_id) {
+        throw new Error("Role ID is NULL in user_roles table");
+      }
+
+      const roleId = mappingData.role_id;
+
+      // STEP 2: Fetch Role Details (Name & Slug)
+      const { data: roleData, error: roleError } = await supabase
+        .from('app_roles')
+        .select('name, slug')
+        .eq('id', roleId)
+        .single();
+
+      if (roleError) {
+        console.error("❌ [RoleContext] App Role Error:", roleError.message);
+        throw new Error("App role definition not found");
+      }
+
+      // STALE CHECK
       if (currentExecutionId !== activeExecutionId.current) return null;
 
-      let finalRoleName = 'Staff';
-      let perms = ['staff_read', 'rota_read', 'timesheets_submit', 'settings_read'];
+      // SUCCESS: Process Data
+      const dbSlug = (roleData.slug || '').toLowerCase().trim();
+      const dbName = roleData.name || 'Staff';
+      
+      console.log(`🎉 [RoleContext] Role Found: [${dbName}]`);
+      setUserRole(dbName);
 
-      if (roleData && roleData.app_roles) {
-        const dbSlug = (roleData.app_roles.slug || '').toLowerCase().trim();
-        const dbName = roleData.app_roles.name || 'Staff';
-        
-        console.log(`📄 [RoleContext] Role verified successfully: ${dbName}`);
-        
-        if (dbSlug.includes('director')) {
-          perms = ['all'];
-          finalRoleName = 'Director';
-        } else if (dbSlug.includes('administrator') || dbSlug.includes('admin')) {
-          perms = ['staff_read', 'staff_write', 'staff_delete', 'clients_read', 'clients_write', 'clients_delete', 'rota_read', 'rota_write', 'rota_delete', 'timesheets_read', 'timesheets_approve', 'compliance_read', 'reports_read', 'settings_read', 'settings_write'];
-          finalRoleName = 'Admin';
-        } else if (dbSlug.includes('hr_officer') || dbSlug.includes('hr officer')) {
-          perms = ['staff_read', 'staff_write', 'clients_read', 'rota_read', 'timesheets_read', 'compliance_read', 'reports_read'];
-          finalRoleName = 'HR';
-        } else {
-          finalRoleName = dbName;
-        }
-      } else {
-        console.warn("⚠️ [RoleContext] User authenticated, but no matching row in user_roles table.");
+      // STEP 3: Fetch Permissions from Database (Dynamic)
+      const { data: permsData, error: permsError } = await supabase
+        .from('role_permissions')
+        .select(`
+          permissions (resource, action)
+        `)
+        .eq('role_id', roleId);
+
+      if (permsError) {
+        console.error("❌ [RoleContext] Permissions Error:", permsError.message);
+        throw new Error("Failed to load permissions");
       }
 
-      setUserRole(finalRoleName);
+      // Transform DB data into simple permission strings
+      let perms = [];
+      
+      // If Director, give 'all' immediately
+      if (dbSlug === 'director') {
+        perms = ['all'];
+      } 
+      // Otherwise, build list from database rows
+      else if (permsData && permsData.length > 0) {
+        perms = permsData
+          .filter(p => p.permissions)
+          .map(p => `${p.permissions.resource}_${p.permissions.action}`);
+      }
+
+      console.log("🔓 [RoleContext] Final Permissions:", perms);
+
       setPermissions(perms);
       setLoading(false);
       isFetching.current = false;
-      return finalRoleName;
+      return dbName;
 
     } catch (err) {
-      console.error("❌ [RoleContext] Caught Promise Exception:", err);
+      console.error("❌ [RoleContext] Exception:", err.message);
       if (currentExecutionId === activeExecutionId.current) {
-        applyStaffFallback(err.message || "Query Failed");
+        applyStaffFallback(err.message || "Database Query Error");
       }
       return 'Staff';
     }
   };
 
   useEffect(() => {
-    console.log("🚀 [RoleContext] Context Provider Mounted to DOM");
-    
-    const emergencyTimer = setTimeout(() => {
-      if (loading) {
-        console.error("🚨 [RoleContext] EMERGENCY TRIP: Loading took too long. Forcing loader OFF.");
-        setLoading(false);
-      }
-    }, 3000);
-
     let initialized = false;
 
     const initializeSession = async () => {
@@ -143,13 +161,18 @@ export const RoleProvider = ({ children }) => {
     );
 
     return () => {
-      clearTimeout(emergencyTimer);
       subscription.unsubscribe();
     };
   }, []);
 
-  const hasPermission = (requiredPerm) => permissions.includes('all') || permissions.includes(requiredPerm);
-  const hasAnyPermission = (permList) => permissions.includes('all') || permList.some(p => permissions.includes(p));
+  const hasPermission = (requiredPerm) => {
+    return permissions.includes('all') || permissions.includes(requiredPerm);
+  };
+
+  const hasAnyPermission = (permList) => {
+    if (permissions.includes('all')) return true;
+    return permList.some(p => permissions.includes(p));
+  };
 
   return (
     <RoleContext.Provider value={{ user, userRole, permissions, hasPermission, hasAnyPermission, loading, fetchUserRole }}>
@@ -158,7 +181,6 @@ export const RoleProvider = ({ children }) => {
   );
 };
 
-// Simple rule utility export helper to satisfy fast refresh components requirements
 export function useRole() {
   const context = useContext(RoleContext);
   if (!context) throw new Error("useRole must be used inside a structured RoleProvider template.");
