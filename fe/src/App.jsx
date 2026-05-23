@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { 
-  Box, AppBar, Toolbar, IconButton, Typography, Drawer, CssBaseline
+  Box, AppBar, Toolbar, IconButton, Typography, Drawer, CssBaseline, CircularProgress
 } from '@mui/material';
 import { Menu as MenuIcon } from '@mui/icons-material';
-import { RoleProvider } from './context/RoleContext'; 
+import { RoleProvider, useRole } from './context/RoleContext'; 
 
 // Pages
 import Dashboard from './pages/Dashboard';
@@ -33,7 +33,6 @@ function LayoutContent() {
     setMobileOpen(!mobileOpen);
   };
 
-  // Helper to get page title
   const getPageTitle = (path) => {
     switch(path) {
       case '/dashboard': return 'Dashboard';
@@ -69,7 +68,7 @@ function LayoutContent() {
             color="inherit"
             edge="start"
             onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { md: 'none' } }} // Hide on Desktop
+            sx={{ mr: 2, display: { md: 'none' } }} 
           >
             <MenuIcon />
           </IconButton>
@@ -143,22 +142,49 @@ function LayoutContent() {
   );
 }
 
+function AppRouterWrapper() {
+  const { loading } = useRole();
+
+  if (loading) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column',
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh', 
+        width: '100vw',
+        bgcolor: '#0c1f3f',
+        gap: 2
+      }}>
+        <CircularProgress size={50} sx={{ color: '#1a5fba' }} />
+        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'sans-serif' }}>
+          Verifying secure workspace parameters...
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginForm />} />
+      <Route
+        path="/*" 
+        element={
+          <ProtectedRoute>
+            <LayoutContent />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  );
+}
+
 function App() {
   return (
     <RoleProvider>
       <Router>
-        <Routes>
-          <Route path="/login" element={<LoginForm />} />
-          
-          <Route
-            path="/*" 
-            element={
-              <ProtectedRoute>
-                <LayoutContent />
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
+        <AppRouterWrapper />
       </Router>
     </RoleProvider>
   );

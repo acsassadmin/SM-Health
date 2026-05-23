@@ -6,7 +6,7 @@ import {
   Paper, Typography, Chip, Avatar, Dialog, DialogTitle, DialogContent, DialogActions,
   Select, MenuItem, InputLabel, FormControl, IconButton, TablePagination, Snackbar, Alert,
   Stepper, Step, StepLabel, Checkbox, FormControlLabel, Divider, Grid, Card, CardContent,
-  useTheme, useMediaQuery, Stack
+  useTheme, useMediaQuery, Stack, List, ListItem, ListItemText, ListItemIcon
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -17,7 +17,10 @@ import {
   ArrowBack,
   ArrowForward,
   ContactPage,
-  AdminPanelSettings
+  AdminPanelSettings,
+  Description,
+  CloudUpload,
+  AttachFile
 } from '@mui/icons-material';
 
 const Staff = () => {
@@ -50,15 +53,19 @@ const Staff = () => {
 
   // --- Wizard State ---
   const [activeStep, setActiveStep] = useState(0);
-  const steps = ['Mandatory Details', 'Additional Details'];
+  // UPDATED: Added Step 3
+  const steps = ['Mandatory Details', 'Additional Details', 'Documents'];
 
   // --- Form State ---
   const [formData, setFormData] = useState({
     first_name: '', last_name: '', dob: '', email: '', phone: '', ni_number: '', joined_date: '',
     contracted_hours: '', right_to_work_expiry: '', dbs_checked: false, dbs_expiry: '', role: '', temp_password: '',
-    custom_data: {}
+    custom_data: {},
+    documents: [] // <-- NEW: Stores array of file objects
   });
-
+  
+  // State for file upload UI
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
 
   useEffect(() => {
@@ -112,9 +119,6 @@ const Staff = () => {
     }
   };
 
- 
-  
-
   const calculateAge = (dob) => {
     if (!dob) return '—';
     const birthDate = new Date(dob);
@@ -142,8 +146,6 @@ const Staff = () => {
     if (diffDays <= 30) return { label: `${diffDays} Days Left`, color: 'warning' };
     return { label: 'Valid', color: 'success' };
   };
-
-  
 
   const handleAddClick = () => {
     resetForm();
@@ -186,7 +188,8 @@ const Staff = () => {
     setFormData({
       first_name: '', last_name: '', dob: '', email: '', phone: '', ni_number: '', joined_date: new Date().toISOString().split('T')[0],
       contracted_hours: '', right_to_work_expiry: '', dbs_checked: false, dbs_expiry: '', role: '', temp_password: '',
-      custom_data: {}
+      custom_data: {},
+      documents: [] // Reset documents
     });
     setCurrentId(null);
   };
@@ -206,7 +209,8 @@ const Staff = () => {
       dbs_expiry: staffMember.dbs_expiry || '',
       role: staffMember.role || '',
       temp_password: '',
-      custom_data: staffMember.custom_data || {}
+      custom_data: staffMember.custom_data || {},
+      documents: staffMember.documents || [] // Load existing docs
     });
     setCurrentId(staffMember.id);
   };
@@ -258,33 +262,23 @@ const Staff = () => {
   };
 
   const handleAddRole = async () => {
-  if (newRoleInput && !roles.includes(newRoleInput)) {
-    try {
-      const nextOrder = roles.length + 1;
-      
-      // 1. Insert the new role directly into your Supabase table
-      const { error } = await supabase
-        .from('staff_role_categories')
-        .insert([{ 
-          name: newRoleInput, 
-          sort_order: nextOrder, 
-          is_active: true 
-        }]);
+    if (newRoleInput && !roles.includes(newRoleInput)) {
+      try {
+        const nextOrder = roles.length + 1;
+        const { error } = await supabase
+          .from('staff_role_categories')
+          .insert([{ name: newRoleInput, sort_order: nextOrder, is_active: true }]);
 
-      if (error) throw error;
-
-      // 2. CRITICAL FIX: Re-fetch directly from the DB to instantly update the dropdown UI
-      await fetchRoleCategories();
-      
-      // 3. Clear the input field text and notify the user
-      setNewRoleInput('');
-      setNotification({ open: true, message: 'New role category added to system', severity: 'success' });
-    } catch (err) {
-      console.error(err);
-      setNotification({ open: true, message: 'Failed to save new role category', severity: 'error' });
+        if (error) throw error;
+        await fetchRoleCategories();
+        setNewRoleInput('');
+        setNotification({ open: true, message: 'New role category added to system', severity: 'success' });
+      } catch (err) {
+        console.error(err);
+        setNotification({ open: true, message: 'Failed to save new role category', severity: 'error' });
+      }
     }
-  }
-};
+  };
 
   const handleAddCustomField = () => {
     const label = prompt("Enter field label (e.g. 'Emergency Contact'):");
@@ -293,7 +287,53 @@ const Staff = () => {
     }
   };
 
-  
+  // --- FILE UPLOAD LOGIC ---
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setUploadingFiles(true);
+    const newDocs = [...formData.documents];
+
+    try {
+      for (const file of files) {
+        const fileName = `${Date.now()}_${file.name}`;
+        // Upload to Storage (Assuming 'staff-documents' bucket exists)
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('staff-documents')
+          .upload(`staff-docs/${fileName}`, file);
+
+        if (uploadError) {
+          console.error("Upload error:", uploadError);
+          continue; 
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('staff-documents')
+          .getPublicUrl(`staff-docs/${fileName}`);
+
+        // Add to form state (in memory)
+        newDocs.push({
+          name: file.name,
+          url: publicUrlData.publicUrl,
+          uploaded_at: new Date().toISOString()
+        });
+      }
+
+      setFormData({ ...formData, documents: newDocs });
+    } catch (err) {
+      console.error(err);
+      setNotification({ open: true, message: 'Failed to upload files', severity: 'error' });
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const handleRemoveDoc = (indexToRemove) => {
+    const newDocs = formData.documents.filter((_, index) => index !== indexToRemove);
+    setFormData({ ...formData, documents: newDocs });
+  };
+
   const StaffMobileCard = ({ s }) => {
     const dbs = getDbsStatus(s.dbs_expiry);
     const rtwValid = s.right_to_work_expiry ? new Date(s.right_to_work_expiry) > new Date() : null;
@@ -541,7 +581,7 @@ const Staff = () => {
           </Box>
           {!isViewing && (
             <Chip
-              label={`Step ${activeStep + 1} of 2`}
+              label={`Step ${activeStep + 1} of ${steps.length}`}
               sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.3)', fontWeight: 'bold' }}
               variant="outlined"
             />
@@ -633,7 +673,6 @@ const Staff = () => {
           {/* STEP 2: ADDITIONAL COMPLIANCE FIELD DETAILS PANEL */}
           {(!isViewing && activeStep === 1) && (
             <Grid container spacing={3}>
-              {/* Dropdown Role Category Selection Input Block */}
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth size="small" variant="outlined" sx={{ bgcolor: 'white' }}>
                   <InputLabel id="role-category-select-label" shrink sx={{ transform: 'translate(14px, -6px) scale(0.75)' }}>
@@ -661,7 +700,6 @@ const Staff = () => {
                 </FormControl>
               </Grid>
 
-              {/* Quick Add Inline Matrix Creation input */}
               <Grid item xs={12} sm={6}>
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <TextField 
@@ -726,7 +764,6 @@ const Staff = () => {
                 </Grid>
               )}
 
-              {/* Dynamic Custom Fields Section */}
               <Grid item xs={12}>
                 <Divider sx={{ my: 1 }} />
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -745,6 +782,57 @@ const Staff = () => {
               ))}
             </Grid>
           )}
+
+          {/* --- NEW STEP 3: DOCUMENTS UPLOAD --- */}
+          {(!isViewing && activeStep === 2) && (
+            <Box>
+              <Typography variant="h6" gutterBottom sx={{ mb: 2 }}>Upload Documents</Typography>
+              
+              <Button
+                variant="outlined"
+                component="label"
+                fullWidth
+                sx={{ height: 56, justifyContent: 'flex-start', textTransform: 'none', borderStyle: 'dashed', mb: 2 }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <CloudUpload color="primary" />
+                  {uploadingFiles ? "Uploading..." : "Select Files to Upload"}
+                </Box>
+                <input type="file" multiple hidden onChange={handleFileUpload} disabled={uploadingFiles} />
+              </Button>
+
+              {/* List Uploaded Files */}
+              {formData.documents.length > 0 ? (
+                <List dense>
+                  {formData.documents.map((doc, idx) => (
+                    <ListItem 
+                      key={idx} 
+                      secondaryAction={
+                        <IconButton edge="end" size="small" onClick={() => handleRemoveDoc(idx)}>
+                          <Delete fontSize="small" color="error" />
+                        </IconButton>
+                      }
+                    >
+                      <ListItemIcon>
+                        <Description fontSize="small" color="primary" />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary={doc.name} 
+                        secondary={new Date(doc.uploaded_at).toLocaleDateString()}
+                        primaryTypographyProps={{ fontSize: '0.9rem' }}
+                      />
+                      <Button size="small" href={doc.url} target="_blank" sx={{ml: 1}}>View</Button>
+                    </ListItem>
+                  ))}
+                </List>
+              ) : (
+                <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', py: 4, border: '1px dashed #ccc', borderRadius: 1 }}>
+                  No documents uploaded yet.
+                </Typography>
+              )}
+            </Box>
+          )}
+
         </DialogContent>
 
         <DialogActions sx={{ p: 3, px: 4, bgcolor: '#fff', borderTop: '1px solid #f0f0f0', gap: 1 }}>
@@ -752,10 +840,11 @@ const Staff = () => {
             <Button variant="contained" sx={{ bgcolor: '#0c1f3f', px: 4 }} onClick={() => setModalOpen(false)}>Close Profile</Button>
           ) : (
             <>
-              {activeStep === 1 && <Button sx={{ color: '#6c757d' }} onClick={() => setActiveStep(0)} startIcon={<ArrowBack />}>Back</Button>}
               {activeStep === 0 && <Button sx={{ color: '#6c757d' }} onClick={() => setModalOpen(false)}>Cancel</Button>}
-              {activeStep === 0 ? (
-                <Button variant="contained" sx={{ bgcolor: '#1a5fba' }} onClick={() => setActiveStep(1)} endIcon={<ArrowForward />}>Next Step</Button>
+              {activeStep > 0 && <Button sx={{ color: '#6c757d' }} onClick={() => setActiveStep(prev => prev - 1)} startIcon={<ArrowBack />}>Back</Button>}
+              
+              {activeStep < steps.length - 1 ? (
+                <Button variant="contained" sx={{ bgcolor: '#1a5fba' }} onClick={() => setActiveStep(prev => prev + 1)} endIcon={<ArrowForward />}>Next Step</Button>
               ) : (
                 <Button variant="contained" sx={{ bgcolor: '#1a5fba', fontWeight: 'bold', px: 3 }} onClick={handleSave}>Save Staff Member</Button>
               )}

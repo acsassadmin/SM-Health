@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useRole } from '../context/RoleContext'; // Import your hook cleanly
 import { 
   Box, List, ListItem, ListItemButton, ListItemIcon, 
-  ListItemText, Typography, Divider, Avatar, Badge, Button 
+  ListItemText, Typography, Button, Avatar 
 } from '@mui/material';
 import { 
   Dashboard as DashboardIcon, People as PeopleIcon, Business as BusinessIcon, 
@@ -16,20 +17,10 @@ import { supabase } from '../supabaseClient';
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
-
-  const [user, setUser] = useState(null);
-
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
-    };
-    getUser();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  
+  // Consume your centralized role details
+  const { user, userRole } = useRole();
+  console.log("userrole",userRole)
 
   const getDisplayName = () => {
     if (!user) return 'Guest';
@@ -66,18 +57,17 @@ const Sidebar = () => {
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings', section: 'Compliance' }
   ];
 
-  // Define specific colors for each icon to make them "Colorful" and "Attractive"
   const iconColors = {
-    '/': '#60a5fa',          // Bright Blue (Dashboard)
-    '/staff': '#34d399',      // Emerald Green (Staff)
-    '/clients': '#818cf8',    // Indigo (Clients)
-    '/shifts': '#fbbf24',     // Amber (Shifts)
-    '/rota': '#22d3ee',       // Cyan (Rota)
-    '/availability': '#f472b6', // Pink (Availability)
-    '/timesheets': '#a3e635', // Lime (Timesheets)
-    '/compliance': '#f87171', // Red (Compliance)
-    '/add-staff': '#8b5cf6',  // Violet (Add Staff)
-    '/settings': '#94a3b8'    // Slate (Settings)
+    '/': '#60a5fa',
+    '/staff': '#34d399',
+    '/clients': '#818cf8',
+    '/shifts': '#fbbf24',
+    '/rota': '#22d3ee',
+    '/availability': '#f472b6',
+    '/timesheets': '#a3e635',
+    '/compliance': '#f87171',
+    '/add-staff': '#8b5cf6',
+    '/settings': '#94a3b8'
   };
 
   const mainItems = menuItems.filter(i => i.section === 'Main');
@@ -106,16 +96,15 @@ const Sidebar = () => {
                   mx: 1,
                   mb: 0.5,
                   borderRadius: 1.5,
-                  // Gradient background for active state
                   bgcolor: isSelected ? 'rgba(26, 95, 186, 0.9)' : 'transparent',
                   color: isSelected ? '#fff' : 'rgba(255,255,255,0.7)',
                   transition: 'all 0.2s ease-in-out',
-                  borderLeft: isSelected ? '4px solid #fff' : '4px solid transparent', // Attractive accent border
+                  borderLeft: isSelected ? '4px solid #fff' : '4px solid transparent',
                   '&:hover': { 
                     bgcolor: isSelected ? 'rgba(26, 95, 186, 1)' : 'rgba(255,255,255,0.08)' 
                   },
                   '& .MuiListItemIcon-root': {
-                    color: iconColor // Apply dynamic color
+                    color: iconColor
                   }
                 }}
               >
@@ -126,7 +115,7 @@ const Sidebar = () => {
                   primary={item.text} 
                   primaryTypographyProps={{ 
                     fontSize: 14, 
-                    fontWeight: isSelected ? 600 : 400 // Bold text when active
+                    fontWeight: isSelected ? 600 : 400
                   }} 
                 />
               </ListItemButton>
@@ -150,7 +139,6 @@ const Sidebar = () => {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 boxShadow: '0 4px 12px rgba(26,95,186,0.4)'
             }}>
-                {/* Simple SVG Cross Logo matching HTML */}
                 <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
                     <rect x="9" y="3" width="4" height="16" rx="1.5" fill="#fff"/>
                     <rect x="3" y="9" width="16" height="4" rx="1.5" fill="#fff"/>
@@ -189,7 +177,8 @@ const Sidebar = () => {
               {displayName}
             </Typography>
             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', textTransform: 'capitalize' }}>
-              {user?.user_metadata?.role || 'Staff'}
+              {/* ✅ Dynamically reads from your Supabase DB tables now! */}
+              {userRole || 'Loading...'} 
             </Typography>
           </Box>
         </Box>
