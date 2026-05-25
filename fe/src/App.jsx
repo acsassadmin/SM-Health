@@ -17,7 +17,6 @@ import Timesheets from './pages/Timesheets';
 import Compliance from './pages/Compliance';
 import Settings from './pages/Settings';
 import LoginForm from './auth/login';
-import AddStaff from './pages/AddStaff';
 
 // Components
 import Sidebar from './components/Sidebar'; 
@@ -44,7 +43,6 @@ function LayoutContent() {
       case '/timesheets': return 'Timesheets';
       case '/compliance': return 'Compliance';
       case '/settings': return 'Settings';
-      case '/add-staff': return 'Add Staff';
       default: return 'SM Heath';
     }
   };
@@ -134,7 +132,6 @@ function LayoutContent() {
           <Route path="/timesheets" element={<Timesheets />} />
           <Route path="/compliance" element={<Compliance />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/add-staff" element={<AddStaff />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Box>
