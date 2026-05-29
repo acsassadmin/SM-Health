@@ -12,6 +12,9 @@ import {
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient'; // Import your supabase client
 
+
+
+
 const Sidebar = () => {
   const navigate = useNavigate();
   const location = useLocation();
