@@ -9,10 +9,13 @@ import { Add, Business, LocationOn, Phone, Person, Bed } from '@mui/icons-materi
 
 const Clients = () => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // Detect mobile screen
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // State for checking user role
+  const [userRoleId, setUserRoleId] = useState(null);
   
   // Pagination State
   const [page, setPage] = useState(0);
@@ -29,14 +32,38 @@ const Clients = () => {
     beds: ''
   });
 
+  // Fetch User Role on Mount
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase
+          .from('user_roles')
+          .select('role_id')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (data) {
+          setUserRoleId(data.role_id);
+        }
+      }
+    };
+    fetchUserRole();
+  }, []);
+
   // Fetch Data with Pagination
   useEffect(() => {
     fetchCareHomes();
-  }, [page, rowsPerPage]);
+  }, [page, rowsPerPage, userRoleId]); // Added userRoleId dependency
 
   const fetchCareHomes = async () => {
+    // LOGIC: If Staff (ID 14), do not fetch anything. Just stop.
+    if (userRoleId === 14) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    
     const from = page * rowsPerPage;
     const to = from + rowsPerPage - 1;
 
@@ -105,23 +132,72 @@ const Clients = () => {
     setPage(0);
   };
 
+  // ---------------------------------------------------------
+  // VIEW LOGIC
+  // ---------------------------------------------------------
+  
+  // 1. While checking role
+  if (userRoleId === null) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  // 2. If Staff (ID 14), Show Empty Page
+  if (userRoleId === 14) {
+    return (
+      <Box sx={{ p: { xs: 1, sm: 3 }, bgcolor: '#f7f9fc', minHeight: '100vh' }}>
+        <Typography variant="h4" sx={{ fontFamily: 'DM sans', fontWeight: 500, mb: 3 }}>
+           Clients
+        </Typography>
+        
+        {/* Empty State - Remove the Typography below if you want it truly blank */}
+        <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            height: '50vh', 
+            flexDirection: 'column',
+            color: 'text.secondary'
+        }}>
+            {/* Uncomment the line below for a truly blank page */}
+            {/* <span></span> */} 
+            
+            <Typography variant="h6">Access Restricted</Typography>
+            <Typography variant="body2">You do not have permission to view this content.</Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  // 3. Otherwise (Director, Admin, HR), Show the Page
   return (
     <Box sx={{ p: { xs: 1, sm: 3 }, bgcolor: '#f7f9fc', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       
-      {/* Header - Stack on mobile */}
+      {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, mb: 3, flexDirection: { xs: 'column', sm: 'row' }, gap: 2 }}>
-        <Typography variant="h4" sx={{ fontFamily: 'serif', fontWeight: 500, fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
+        <Typography variant="h4" sx={{ fontFamily: 'DM sans', fontWeight: 500, fontSize: { xs: '1.75rem', sm: '2.125rem' } }}>
           Clients
         </Typography>
-        <Button 
-          variant="contained" 
-          startIcon={<Add />} 
-          onClick={handleOpenModal}
-          fullWidth={isMobile} // Full width on mobile
-          sx={{ py: 1.5 }}
-        >
-          Add Client
-        </Button>
+        
+        {/* 
+           BUTTON LOGIC:
+           Show button ONLY for Director (11) and Admin (12).
+           Hides for HR (13) and Staff (14).
+        */}
+        {(userRoleId === 11 || userRoleId === 12) && (
+          <Button 
+            variant="contained" 
+            startIcon={<Add />} 
+            onClick={handleOpenModal}
+            fullWidth={isMobile}
+            sx={{ py: 1.5 }}
+          >
+            Add Client
+          </Button>
+        )}
       </Box>
 
       {/* Content Area */}
@@ -135,12 +211,11 @@ const Clients = () => {
             {homes.length === 0 ? (
                <Grid item xs={12}>
                  <Typography align="center" color="text.secondary" sx={{ mt: 5 }}>
-                   No clients found. Add one!
+                   No clients found.
                  </Typography>
                </Grid>
             ) : (
               homes.map((home) => (
-                // RESPONSIVE GRID: Full width mobile, half tablet, third desktop
                 <Grid item xs={12} sm={6} md={4} key={home.id}>
                   <Card 
                     sx={{ 
@@ -206,7 +281,6 @@ const Clients = () => {
                 page={page}
                 onPageChange={handleChangePage}
                 onRowsPerPageChange={handleChangeRowsPerPage}
-                // Hide "Rows per page" label on mobile to save space
                 labelRowsPerPage={isMobile ? '' : 'Rows per page:'}
               />
           </Box>
@@ -229,7 +303,6 @@ const Clients = () => {
               value={formData.address} onChange={handleChange}
             />
             
-            {/* RESPONSIVE GRID IN MODAL */}
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <TextField

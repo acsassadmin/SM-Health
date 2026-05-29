@@ -228,7 +228,7 @@ const Dashboard = () => {
         gap: 2
       }}>
         <Box>
-          <Typography variant="h4" sx={{ fontFamily: 'serif', fontWeight: 'bold', color: '#0c1f3f' }}>
+          <Typography variant="h4" sx={{ fontFamily: 'DM sans', fontWeight: 'bold', color: '#0c1f3f' }}>
             Director Dashboard
           </Typography>
           <Typography variant="body2" color="textSecondary">
@@ -244,7 +244,7 @@ const Dashboard = () => {
         </Alert>
       )}
 
-      {/* --- STATS GRID --- */}
+      {/* --- STATS GRID (UPDATED FOR 5 IN ONE ROW) --- */}
       <Grid container spacing={2} sx={{ mb: { xs: 2, sm: 4 } }}>
         <Grid item xs={12} sm={6} md={2.4}>
           <StatCard title="Active Staff" value={stats.totalStaff} icon={<People />} color="#1a5fba" />
@@ -530,14 +530,16 @@ const StatCard = ({ title, value, icon, color }) => (
             textTransform: 'uppercase', 
             fontWeight: 'bold', 
             letterSpacing: 0.5,
-            fontSize: '0.75rem'
+            fontSize: { xs: '0.65rem', md: '0.75rem' } // Slightly smaller text on mobile to fit
           }}>
             {title}
           </Typography>
-          <Typography variant="h4" sx={{ fontWeight: 'bold', mt: 1, color: '#0c1f3f' }}>{value}</Typography>
+          <Typography variant="h4" sx={{ fontWeight: 'bold', mt: 1, color: '#0c1f3f', fontSize: { xs: '1.5rem', md: '2.125rem' } }}>
+            {value}
+          </Typography>
         </Box>
         <Box sx={{ 
-          p: 1.5, 
+          p: 1, 
           bgcolor: `${color}15`, 
           borderRadius: 2,
           color: color

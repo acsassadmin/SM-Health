@@ -92,7 +92,7 @@ const LoginForm = () => {
               fontSize: { xs: '1.75rem', sm: '2rem' },
             }}
           >
-            SM Heath Login
+            SM Health Login
           </Typography>
 
           <Typography

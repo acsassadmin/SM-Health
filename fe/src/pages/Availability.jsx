@@ -181,7 +181,7 @@ export default function AvailabilityPage() {
       {/* PAGE HEADER */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
-          <Typography variant="h4" sx={{ fontFamily: 'DM Serif Display, serif', color: '#0c1f3f', fontWeight: 400 }}>
+          <Typography variant="h4" sx={{ fontFamily: 'DM sans', color: '#0c1f3f', fontWeight: 400 }}>
             Staff Availability
           </Typography>
           <Typography variant="body2" sx={{ color: '#5e7187' }}>
@@ -341,7 +341,7 @@ export default function AvailabilityPage() {
           overflow: 'hidden'
         }}>
           <Box sx={{ bgcolor: '#1a5fba', px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography id="modal-title" variant="h6" sx={{ color: '#fff', fontFamily: 'DM Serif Display, serif', fontSize: 20 }}>
+            <Typography id="modal-title" variant="h6" sx={{ color: '#fff', fontFamily: 'DM Sans', fontSize: 20 }}>
               Mark Unavailability
             </Typography>
             <IconButton onClick={() => setIsModalOpen(false)} sx={{ color: '#fff' }}>

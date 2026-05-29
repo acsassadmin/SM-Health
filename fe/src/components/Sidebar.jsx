@@ -3,18 +3,18 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useRole } from '../context/RoleContext'; 
 import { 
   Box, List, ListItem, ListItemButton, ListItemIcon, 
-  ListItemText, Typography, Button, Avatar, InputBase 
+  ListItemText, Typography, Button, Avatar, InputBase
 } from '@mui/material';
 import { 
   Dashboard as DashboardIcon, People as PeopleIcon, Business as BusinessIcon, 
   EventNote as EventNoteIcon, CalendarMonth as CalendarMonthIcon, 
   CheckCircle as CheckCircleIcon, AccessTime as AccessTimeIcon, 
-  Shield as ShieldIcon, Logout as LogoutIcon , PersonAdd as PersonAddIcon,
+  Shield as ShieldIcon, Logout as LogoutIcon,
   Settings as SettingsIcon, Edit as EditIcon, Save as SaveIcon 
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient'; 
 
-// Make sure this UUID string exactly matches the ID of your row in the tenant_settings table
+// Constant ID for tenant settings row
 const SETTINGS_ID = '00000000-0000-0000-0000-000000000000';
 
 const Sidebar = () => {
@@ -25,15 +25,15 @@ const Sidebar = () => {
   const { user, userRole } = useRole();
   const isDirector = userRole?.toLowerCase() === 'director';
 
-  // --- Dynamic States ---
-  const [brandName, setBrandName] = useState('SM Heath');
+  // --- Branding States ---
+  const [brandName, setBrandName] = useState('SM Health');
   const [portalSubtitle, setPortalSubtitle] = useState('Staffing Portal');
   const [brandIcon, setBrandIcon] = useState(null);
   const [isEditing, setIsEditing] = useState(false); 
 
-  // --- 1. Fetch saved configurations from DB on mount ---
-  useEffect(() => {
-    const fetchBranding = async () => {
+  // --- 1. Fetch saved configurations on mount ---
+  const fetchBranding = async () => {
+    try {
       const { data, error } = await supabase
         .from('tenant_settings')
         .select('brand_name, portal_subtitle, brand_logo_url')
@@ -41,39 +41,78 @@ const Sidebar = () => {
         .single();
 
       if (data && !error) {
-        setBrandName(data.brand_name || 'SM Heath');
+        setBrandName(data.brand_name || 'SM Health');
         setPortalSubtitle(data.portal_subtitle || 'Staffing Portal');
         setBrandIcon(data.brand_logo_url);
       } else if (error) {
         console.error("Error fetching settings:", error.message);
       }
-    };
+    } catch (err) {
+      console.error("Fetch exception:", err);
+    }
+  };
+
+  useEffect(() => {
     fetchBranding();
   }, []);
 
-  // --- 2. Save configurations back into tenant_settings ---
+  // --- 2. Save configurations and HIDE button on success ---
   const handleSaveBranding = async () => {
     if (!isDirector) return;
     
-    const { error } = await supabase
+    console.log("SENDING CLEAN PAYLOAD TO DB...");
+    const { data, error } = await supabase
       .from('tenant_settings')
       .update({
         brand_name: brandName,
         portal_subtitle: portalSubtitle,
         brand_logo_url: brandIcon 
       })
-      .eq('id', SETTINGS_ID); 
+      .eq('id', SETTINGS_ID)
+      .select();
 
-    if (!error) {
-      setIsEditing(false);
-      alert("Branding configurations saved successfully!");
+    if (!error && data && data.length > 0) {
+      console.log("DB UPDATE SUCCESSFUL. LOCKED IN:", data);
+      setIsEditing(false); // Hides the save button immediately
     } else {
-      console.error("Error committing changes to database:", error.message);
-      alert("Failed to save changes. Check console for error details.");
+      console.error("Error committing changes to database:", error?.message || "No rows matching ID found");
+      alert("Failed to save changes. Verify your internet connection or Row Level Security (RLS) rules.");
     }
   };
 
-  // --- 3. Clean Sign Out Execution ---
+  // --- 3. Dynamic Image Compression Component ---
+  const handleIconUpload = (event) => {
+    const file = event.target.files[0];
+    if (file && isDirector) {
+      console.log(`Original file size: ${(file.size / 1024).toFixed(2)} KB`);
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const img = new Image();
+        img.src = reader.result;
+        img.onload = () => {
+          // Create an HTML Canvas element to scale down the image
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 128; // 128px is more than enough for a tiny sidebar logo icon
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          // Convert canvas back to lightweight WebP data URL string (Compressed!)
+          const compressedDataUrl = canvas.toDataURL('image/webp', 0.7); 
+          console.log("Compressed Image Base64 String Ready.");
+          
+          setBrandIcon(compressedDataUrl);
+          setIsEditing(true); 
+        };
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -81,20 +120,8 @@ const Sidebar = () => {
       sessionStorage.clear();
       navigate('/login', { replace: true });
     } catch (err) {
-      console.error("Sign out action threw an exception:", err);
+      console.error("Sign out error:", err);
       window.location.href = '/login'; 
-    }
-  };
-
-  const handleIconUpload = (event) => {
-    const file = event.target.files[0];
-    if (file && isDirector) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setBrandIcon(reader.result);
-        setIsEditing(true); 
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -117,7 +144,6 @@ const Sidebar = () => {
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings', section: 'Compliance' }
   ];
 
-  // Colorful icons object completely preserved 
   const iconColors = {
     '/': '#60a5fa', '/staff': '#34d399', '/clients': '#818cf8', '/shifts': '#fbbf24',
     '/rota': '#22d3ee', '/availability': '#f472b6', '/timesheets': '#a3e635',
@@ -131,7 +157,7 @@ const Sidebar = () => {
       </Typography>
       <List sx={{ py: 0 }}>
         {items.map((item) => {
-          const isSelected = location.pathname === item.path;
+          const isSelected = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
           return (
             <ListItem key={item.text} disablePadding sx={{ display: 'block' }}>
               <ListItemButton
@@ -162,7 +188,7 @@ const Sidebar = () => {
       {/* Header Panel */}
       <Box sx={{ p: 3.5, borderBottom: '1px solid rgba(255,255,255,0.08)', position: 'relative' }}>
         
-        {/* Dynamic Save Action Interface */}
+        {/* Save Button: Only visible to Director when changes are detected */}
         {isDirector && isEditing && (
           <Button 
             size="small"
@@ -172,15 +198,16 @@ const Sidebar = () => {
             onClick={handleSaveBranding}
             sx={{ 
               position: 'absolute', top: 12, right: 12, fontSize: 11, 
-              textTransform: 'none', px: 1.5, py: 0.2, fontWeight: 'bold'
+              textTransform: 'none', px: 1.5, py: 0.2, fontWeight: 'bold',
+              boxShadow: '0 4px 10px rgba(46, 125, 50, 0.3)'
             }}
           >
             Save
           </Button>
         )}
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5, mt: isEditing ? 2 : 0 }}>
-            {/* Logo Unit */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5, mt: (isDirector && isEditing) ? 2 : 0 }}>
+            {/* Editable Logo Unit */}
             <Box 
               onClick={() => isDirector && fileInputRef.current.click()}
               sx={{ 
@@ -188,7 +215,7 @@ const Sidebar = () => {
                 cursor: isDirector ? 'pointer' : 'default', overflow: 'hidden',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 boxShadow: '0 4px 12px rgba(26,95,186,0.4)', position: 'relative',
-                border: isDirector ? '1px dashed rgba(255,255,255,0.4)' : 'none',
+                border: (isDirector && !brandIcon) ? '1px dashed rgba(255,255,255,0.4)' : 'none',
                 '&:hover .edit-overlay': { opacity: isDirector ? 1 : 0 }
               }}
             >
@@ -209,20 +236,20 @@ const Sidebar = () => {
                 <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={handleIconUpload} />
             </Box>
 
-            {/* Brand Title Input */}
+            {/* Editable Brand Title */}
             <InputBase
               value={brandName}
               readOnly={!isDirector}
               onFocus={() => isDirector && setIsEditing(true)}
               onChange={(e) => setBrandName(e.target.value)}
               sx={{ 
-                color: 'white', fontFamily: 'serif', fontWeight: 700, fontSize: 18, width: '100%',
+                color: 'white', fontFamily:'DM Sans', fontWeight: 700, fontSize: 18, width: '100%',
                 '& .MuiInputBase-input': { p: 0, cursor: isDirector ? 'text' : 'default' }
               }}
             />
         </Box>
 
-        {/* Subtitle Input */}
+        {/* Editable Subtitle */}
         <InputBase
           value={portalSubtitle}
           readOnly={!isDirector}

@@ -70,7 +70,7 @@ function LayoutContent() {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontFamily: 'serif' }}>
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, fontFamily: 'DM sans' }}>
             {getPageTitle(location.pathname)}
           </Typography>
         </Toolbar>
@@ -155,7 +155,7 @@ function AppRouterWrapper() {
         gap: 2
       }}>
         <CircularProgress size={50} sx={{ color: '#1a5fba' }} />
-        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'sans-serif' }}>
+        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'DM sans' }}>
           Verifying secure workspace parameters...
         </Typography>
       </Box>

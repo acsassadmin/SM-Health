@@ -26,6 +26,14 @@ const COLORS = {
   muted: '#5e7187'
 };
 
+// Role Constants (matching your DB)
+const ROLE_ID = {
+  DIRECTOR: 11,
+  ADMIN: 12,
+  HR_OFFICER: 13,
+  STAFF: 14
+};
+
 const getRoleColor = (roleName) => {
   const palette = [
     { bg: '#dbeafe', text: '#1e40af', hex: '#1a5fba' }, 
@@ -57,6 +65,10 @@ const Rota = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
+  // --- AUTH & ROLE STATES ---
+  const [userId, setUserId] = useState(null);
+  const [userRoleId, setUserRoleId] = useState(null);
+
   // --- ROTA CALENDAR CONTEXT STATES ---
   const [viewMode, setViewMode] = useState('month'); 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -78,10 +90,10 @@ const Rota = () => {
     client_id: '',
     date: formatDateLocal(new Date()),
     role: '',
-    pattern_id: '', // Storing pattern ID directly now
+    pattern_id: '', 
     start_time: '',
     end_time: '',
-    notes: '' // Added notes field
+    notes: ''
   });
 
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -97,13 +109,33 @@ const Rota = () => {
   // EFFECTS & LIFECYCLES
   // ─────────────────────────────────────────────────────────────
   
+  // 1. Fetch User Identity and Role
   useEffect(() => {
-    fetchReferenceData();
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+        // Fetch Role ID from user_roles
+        const { data: roleData } = await supabase
+          .from('user_roles')
+          .select('role_id')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (roleData) {
+          setUserRoleId(roleData.role_id);
+        }
+      }
+    };
+    fetchUser();
   }, []);
 
   useEffect(() => {
-    fetchDataForView();
-  }, [viewMode, currentDate, weekDate, currentYear, selectedRoleFilter, selectedClientFilter]);
+    if (userRoleId !== null) {
+      fetchReferenceData();
+      fetchDataForView();
+    }
+  }, [viewMode, currentDate, weekDate, currentYear, selectedRoleFilter, selectedClientFilter, userRoleId]);
 
   const fetchReferenceData = async () => {
     try {
@@ -118,7 +150,6 @@ const Rota = () => {
         }
       }
 
-      // Fetch shift patterns directly from the table
       const { data: patternsData } = await supabase.from('shift_patterns').select('*');
       if (patternsData) setShiftPatterns(patternsData);
     } catch (err) {
@@ -133,6 +164,13 @@ const Rota = () => {
       care_homes!left (name),
       staff!left (first_name, last_name)
     `);
+
+    // FILTERING LOGIC FOR ROLES
+    if (userRoleId === ROLE_ID.STAFF) {
+      // Staff: See ONLY shifts assigned to them
+      query = query.eq('assigned_id', userId);
+    } 
+    // HR, Director, Admin: See all shifts (No filter applied here)
 
     if (viewMode === 'month') {
       const start = formatDateLocal(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
@@ -198,7 +236,6 @@ const Rota = () => {
     setLegendFilters(newFilters);
   };
 
-  // Automatically captures the hidden start and end times based on pattern selected
   const handlePatternChange = (e) => {
     const patternId = e.target.value;
     const selectedPattern = shiftPatterns.find(p => p.id === patternId);
@@ -312,11 +349,18 @@ const Rota = () => {
             return (
               <Box
                 key={s.id}
-                onClick={(e) => { e.stopPropagation(); handleOpenAssignModal(s); }}
+                // DISABLE CLICK TO ASSIGN FOR HR AND STAFF
+                onClick={(e) => { 
+                  if (userRoleId === ROLE_ID.DIRECTOR || userRoleId === ROLE_ID.ADMIN) {
+                    e.stopPropagation(); 
+                    handleOpenAssignModal(s); 
+                  }
+                }}
                 sx={{
                   display: 'flex', alignItems: 'center', gap: '3px',
                   fontSize: 10, fontWeight: 700, px: '5px', py: '2px', borderRadius: '3px',
-                  bgcolor: style.bg, color: style.text, cursor: 'pointer',
+                  bgcolor: style.bg, color: style.text, 
+                  cursor: (userRoleId === ROLE_ID.DIRECTOR || userRoleId === ROLE_ID.ADMIN) ? 'pointer' : 'default',
                   overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
                 }}
               >
@@ -410,10 +454,17 @@ const Rota = () => {
                       return (
                         <Box 
                           key={s.id}
-                          onClick={(e) => { e.stopPropagation(); handleOpenAssignModal(s); }}
+                           // DISABLE CLICK TO ASSIGN FOR HR AND STAFF
+                          onClick={(e) => { 
+                             if (userRoleId === ROLE_ID.DIRECTOR || userRoleId === ROLE_ID.ADMIN) {
+                               e.stopPropagation(); 
+                               handleOpenAssignModal(s); 
+                             }
+                           }}
                           sx={{ 
                             fontSize: '10px', fontWeight: 700, p: '4px', borderRadius: '4px', 
-                            bgcolor: style.bg, color: style.text, overflow: 'hidden', textOverflow: 'ellipsis' 
+                            bgcolor: style.bg, color: style.text, overflow: 'hidden', textOverflow: 'ellipsis',
+                            cursor: (userRoleId === ROLE_ID.DIRECTOR || userRoleId === ROLE_ID.ADMIN) ? 'pointer' : 'default'
                           }}
                         >
                           {s.start_time?.substring(0,5)} {s.staff ? s.staff.first_name : '⚠ Open'}
@@ -492,6 +543,12 @@ const Rota = () => {
   // ─────────────────────────────────────────────────────────────
 
   const handleOpenCreateModal = (dateStr) => {
+    // BLOCK ACCESS FOR HR AND STAFF
+    if (userRoleId === ROLE_ID.HR_OFFICER || userRoleId === ROLE_ID.STAFF) {
+      alert("You do not have permission to create shifts.");
+      return;
+    }
+
     setFormData({
       client_id: clients.length > 0 ? clients[0].id : '',
       date: dateStr || formatDateLocal(new Date()),
@@ -504,29 +561,51 @@ const Rota = () => {
     setIsCreateModalOpen(true);
   };
 
-  const handleSaveShift = async () => {
-    if (!formData.client_id || !formData.date || !formData.start_time || !formData.end_time) {
-      return alert("Fields missing! Please select a Shift Template Pattern to define times.");
+   const handleSaveShift = async () => {
+    // 1. Debug Logging (Check your browser console F12)
+    console.log("Attempting to save shift with data:", formData);
+
+    // 2. Validation Checks
+    if (!formData.client_id) {
+      return alert("Error: Care Home Location is required.");
     }
-    
-    // Inserts details alongside your newly requested notes column field
+    if (!formData.date) {
+      return alert("Error: Shift Date is required.");
+    }
+    if (!formData.start_time || !formData.end_time) {
+      return alert("Error: Start and End times are required. Please select a Shift Pattern.");
+    }
+    if (!formData.role) {
+      return alert("Error: Staff Role Category is required.");
+    }
+
+    // 3. Database Insert
     const { error } = await supabase.from('shifts').insert([{
       client_id: formData.client_id, 
       date: formData.date,
       start_time: formData.start_time, 
       end_time: formData.end_time, 
       role: formData.role,
-      notes: formData.notes 
+      notes: formData.notes || '' // Ensure notes is not undefined
     }]);
 
-    if (error) alert("Database write failed: " + error.message);
-    else {
+    // 4. Handle Response
+    if (error) {
+      console.error("Database Error:", error);
+      alert("Failed to publish shift: " + error.message);
+    } else {
+      alert("Shift published successfully!");
       setIsCreateModalOpen(false);
       fetchDataForView();
     }
   };
 
   const handleOpenAssignModal = async (shift) => {
+    // BLOCK ACCESS FOR HR AND STAFF
+    if (userRoleId === ROLE_ID.HR_OFFICER || userRoleId === ROLE_ID.STAFF) {
+      return; // Silent fail
+    }
+
     setAssignModalShift(shift);
     setIsAssignModalOpen(true);
     setAvailableStaff([]);
@@ -550,6 +629,14 @@ const Rota = () => {
       fetchDataForView();
     }
   };
+
+  // ─────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────
+
+  if (userRoleId === null) {
+    return <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><CircularProgress /></Box>;
+  }
 
   return (
     <Box sx={{ 
@@ -609,9 +696,12 @@ const Rota = () => {
             </Select>
           </FormControl>
 
-          <Button variant="contained" startIcon={<AddIcon />} size="medium" onClick={() => handleOpenCreateModal(null)} sx={{ bgcolor: COLORS.primary, borderRadius: '8px', fontWeight: 600 }}>
-            + Add Shift
-          </Button>
+          {/* HIDE ADD BUTTON FOR HR AND STAFF */}
+          {(userRoleId === ROLE_ID.DIRECTOR || userRoleId === ROLE_ID.ADMIN) && (
+            <Button variant="contained" startIcon={<AddIcon />} size="medium" onClick={() => handleOpenCreateModal(null)} sx={{ bgcolor: COLORS.primary, borderRadius: '8px', fontWeight: 600 }}>
+              + Add Shift
+            </Button>
+          )}
         </Box>
       </Box>
 
@@ -774,7 +864,6 @@ const Rota = () => {
             </Select>
           </FormControl>
 
-          {/* ADDED NOTES TEXTFIELD FIELD */}
           <TextField
             label="Notes / Special Instructions"
             multiline

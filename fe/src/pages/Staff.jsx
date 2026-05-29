@@ -26,22 +26,27 @@ import {
 
 
 const datePickerStyles = `
-  /* Ensure the date text is clearly visible and dark */
   input[type="date"] {
     color: #2c3e50 !important;
-    font-family: inherit;
+    font-family: 'DM sans';
   }
-
-  /* Make the calendar icon look clean */
   input[type="date"]::-webkit-calendar-picker-indicator {
     cursor: pointer;
     opacity: 0.7;
   }
-
   input[type="date"]::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
   }
 `;
+
+// List of columns that are part of the standard system (hardcoded)
+const SYSTEM_COLUMNS = [
+  'id', 'created_at', 'updated_at', 
+  'first_name', 'last_name', 'dob', 'email', 'phone', 'ni_number', 'joined_date', 
+  'role', 'contracted_hours', 'right_to_work_expiry', 
+  'dbs_checked', 'dbs_expiry', 'custom_data', 'title'
+];
+
 const Staff = () => {
   const navigate = useNavigate();
   const theme = useTheme();
@@ -53,12 +58,13 @@ const Staff = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [notification, setNotification] = useState({ open: false, message: '', severity: 'success' });
 
-  // --- Dynamic Roles From DB ---
+  // --- Dynamic Roles ---
   const [roles, setRoles] = useState([]);
   const [newRoleInput, setNewRoleInput] = useState('');
 
-  // --- Custom Fields ---
-  const [customFields, setCustomFields] = useState([]);
+  // --- Dynamic Columns (Detected from DB Schema) ---
+  const [dynamicColumns, setDynamicColumns] = useState([]);
+  const [columnLabels, setColumnLabels] = useState({}); // NEW: Stores pretty names
 
   // --- Pagination State ---
   const [page, setPage] = useState(0);
@@ -76,13 +82,14 @@ const Staff = () => {
 
   // --- Form State ---
   const [formData, setFormData] = useState({
+    title: 'Mr.', // ADDED: Default Title
     first_name: '', last_name: '', dob: '', email: '', phone: '', ni_number: '', joined_date: '',
     contracted_hours: '', right_to_work_expiry: '', dbs_checked: false, dbs_expiry: '', role: '', temp_password: '',
-    custom_data: {},
     documents: []
   });
 
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [errors, setErrors] = useState({});
 
   // Inject Styles
   useEffect(() => {
@@ -101,9 +108,10 @@ const Staff = () => {
 
   useEffect(() => {
     fetchRoleCategories();
+    fetchDynamicSchema(); // Fetch schema on load
   }, []);
 
-  // Helper to extract documents safely
+  // Helper to extract documents
   const getDocuments = (staffMember) => {
     if (!staffMember.custom_data) return [];
     return staffMember.custom_data.uploaded_documents || [];
@@ -148,7 +156,29 @@ const Staff = () => {
         setRoles(data.map(r => r.name).filter(Boolean));
       }
     } catch (err) {
-      console.error('Error fetching role categories:', err);
+      console.error('Error fetching roles:', err);
+    }
+  };
+
+  // --- Fetch Dynamic Schema from DB ---
+  const fetchDynamicSchema = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('information_schema.columns')
+        .select('column_name')
+        .eq('table_name', 'staff')
+        .eq('table_schema', 'public');
+
+      if (error) throw error;
+      if (data) {
+        const customCols = data
+          .map(col => col.column_name)
+          .filter(name => !SYSTEM_COLUMNS.includes(name));
+        
+        setDynamicColumns(customCols);
+      }
+    } catch (err) {
+      console.error("Error fetching schema:", err);
     }
   };
 
@@ -202,7 +232,7 @@ const Staff = () => {
   };
 
   const handleDeleteClick = async (id, name) => {
-    if (window.confirm(`Are you sure you want to delete ${name}? This action cannot be undone.`)) {
+    if (window.confirm(`Are you sure you want to delete ${name}?`)) {
       const { error } = await supabase
         .from('staff')
         .delete()
@@ -219,24 +249,36 @@ const Staff = () => {
 
   const resetForm = () => {
     setFormData({
+      title: 'Mr.', // ADDED: Reset Title
       first_name: '', last_name: '', dob: '', email: '', phone: '', ni_number: '', joined_date: new Date().toISOString().split('T')[0],
       contracted_hours: '', right_to_work_expiry: '', dbs_checked: false, dbs_expiry: '', role: '', temp_password: '',
-      custom_data: {},
       documents: []
     });
-    setCustomFields([]);
+    setErrors({});
     setCurrentId(null);
   };
 
-  const populateForm = (staffMember) => {
-    const rawCustomData = staffMember.custom_data || {};
-    const systemDocs = rawCustomData.uploaded_documents || [];
-    const customFieldsExtracted = Object.keys(rawCustomData)
-      .filter(key => key !== 'uploaded_documents')
-      .map((key, index) => ({ id: index, label: key, type: 'text' }));
+  // Helper to format label: snake_case -> Title Case
+  const formatLabel = (str) => {
+    if (!str) return '';
+    
+    // Check custom labels first
+    if (columnLabels[str]) {
+      return columnLabels[str];
+    }
 
-    setCustomFields(customFieldsExtracted);
-    setFormData({
+    // Fallback to automatic formatting
+    return str
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  const populateForm = (staffMember) => {
+    const systemDocs = staffMember.custom_data?.uploaded_documents || [];
+    
+    const initialState = {
+      title: staffMember.title || 'Mr.', // ADDED: Load Title from DB
       first_name: staffMember.first_name || '',
       last_name: staffMember.last_name || '',
       dob: staffMember.dob || '',
@@ -250,79 +292,123 @@ const Staff = () => {
       dbs_expiry: staffMember.dbs_expiry || '',
       role: staffMember.role || '',
       temp_password: '',
-      custom_data: rawCustomData,
       documents: systemDocs
+    };
+
+    // Inject values for dynamic columns
+    dynamicColumns.forEach(colName => {
+      initialState[colName] = staffMember[colName] || '';
     });
+
+    setFormData(initialState);
+    setErrors({});
     setCurrentId(staffMember.id);
   };
 
- const handleSave = async () => {
-  const { 
-    first_name, last_name, dob, email, phone, ni_number, 
-    joined_date, contracted_hours, right_to_work_expiry,
-    dbs_checked, dbs_expiry, documents, custom_data, role 
-  } = formData;
+  const validateStep1 = () => {
+    const newErrors = {};
+    const { first_name, last_name, dob, email, phone, ni_number } = formData;
 
-  // Validation
-  if (!first_name || !last_name || !dob || !email || !phone || !ni_number) {
-    setNotification({ open: true, message: "Please fill in all mandatory fields.", severity: 'warning' });
-    setActiveStep(0);
-    return;
-  }
+    if (!first_name) newErrors.first_name = "Required";
+    if (!last_name) newErrors.last_name = "Required";
+    if (!phone) newErrors.phone = "Required";
+    if (!ni_number) newErrors.ni_number = "Required";
 
-  // Bundle Documents and Custom Fields into the JSONB column
-  const finalCustomData = {
-    ...custom_data, // Includes your "Additional Custom Fields"
-    uploaded_documents: documents // Saves the array of file URLs/Names
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email) {
+      newErrors.email = "Required";
+    } else if (!emailRegex.test(email)) {
+      newErrors.email = "Invalid email format";
+    }
+
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dob) {
+      newErrors.dob = "Required";
+    } else if (!dateRegex.test(dob)) {
+      newErrors.dob = "Invalid date format (YYYY-MM-DD)";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const payload = {
-    first_name,
-    last_name,
-    dob,
-    email,
-    phone,
-    ni_number,
-    role,
-    joined_date: joined_date || null,
-    contracted_hours: contracted_hours ? parseFloat(contracted_hours) : null,
-    right_to_work_expiry: right_to_work_expiry || null,
-    dbs_checked: !!dbs_checked,
-    dbs_expiry: dbs_checked ? dbs_expiry : null,
-    custom_data: finalCustomData // This goes into your DB column
-  };
+  const handleSave = async () => {
+    const { 
+      title, first_name, last_name, dob, email, phone, ni_number, 
+      joined_date, contracted_hours, right_to_work_expiry,
+      dbs_checked, dbs_expiry, documents, role 
+    } = formData;
 
-  // Only add password if it's a new user or being changed
-  if (formData.temp_password) {
-    payload.temp_password = formData.temp_password;
-  }
+    if (!validateStep1()) {
+      setNotification({ open: true, message: "Please fix validation errors.", severity: 'warning' });
+      setActiveStep(0);
+      return;
+    }
 
-  let error;
-  if (currentId) {
-    const { error: updateError } = await supabase
-      .from('staff')
-      .update(payload)
-      .eq('id', currentId);
-    error = updateError;
-  } else {
-    const { error: insertError } = await supabase
-      .from('staff')
-      .insert([payload]);
-    error = insertError;
-  }
+    const payload = {
+      title, // ADDED: Include title in payload
+      first_name,
+      last_name,
+      dob,
+      email,
+      phone,
+      ni_number,
+      role,
+      joined_date: joined_date || null,
+      contracted_hours: contracted_hours ? parseFloat(contracted_hours) : null,
+      right_to_work_expiry: right_to_work_expiry || null,
+      dbs_checked: !!dbs_checked,
+      dbs_expiry: dbs_checked ? dbs_expiry : null,
+    };
 
-  if (error) {
-    setNotification({ open: true, message: error.message, severity: 'error' });
-  } else {
-    setModalOpen(false);
-    setNotification({ 
-      open: true, 
-      message: currentId ? 'Profile updated' : 'Staff onboarded successfully', 
-      severity: 'success' 
+    // Add dynamic fields to payload
+    dynamicColumns.forEach(colName => {
+      payload[colName] = formData[colName] || null;
     });
-    fetchStaff(); 
-  }
-};
+
+    // Handle documents
+    let existingCustomData = {};
+    if (currentId) {
+      const { data: existingStaff } = await supabase.from('staff').select('custom_data').eq('id', currentId).single();
+      existingCustomData = existingStaff?.custom_data || {};
+    }
+
+    payload.custom_data = {
+      ...existingCustomData,
+      uploaded_documents: documents
+    };
+
+    if (formData.temp_password) {
+      payload.temp_password = formData.temp_password;
+    }
+
+    let error;
+    if (currentId) {
+      const { error: updateError } = await supabase
+        .from('staff')
+        .update(payload)
+        .eq('id', currentId);
+      error = updateError;
+    } else {
+      const { error: insertError } = await supabase
+        .from('staff')
+        .insert([payload]);
+      error = insertError;
+    }
+
+    if (error) {
+      console.error("Save Error:", error);
+      setNotification({ open: true, message: `Save failed: ${error.message}`, severity: 'error' });
+    } else {
+      setModalOpen(false);
+      setNotification({ 
+        open: true, 
+        message: currentId ? 'Profile updated' : 'Staff onboarded successfully', 
+        severity: 'success' 
+      });
+      fetchStaff(); 
+    }
+  };
 
   const handleAddRole = async () => {
     if (newRoleInput && !roles.includes(newRoleInput)) {
@@ -343,10 +429,45 @@ const Staff = () => {
     }
   };
 
-  const handleAddCustomField = () => {
+  // --- Handle Add Custom Field (Schema Driven) ---
+  const handleAddCustomField = async () => {
     const label = prompt("Enter field label (e.g. 'Emergency Contact'):");
     if (label) {
-      setCustomFields([...customFields, { id: Date.now(), label, type: 'text' }]);
+      // 1. Generate a safe database column name
+      const columnName = label
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_]/g, '');
+      
+      if (!columnName) {
+        setNotification({ open: true, message: 'Invalid field name generated.', severity: 'error' });
+        return;
+      }
+
+      // 2. Execute SQL via RPC
+      const { error: rpcError } = await supabase.rpc('add_column_to_staff', { 
+        p_column_name: columnName, 
+        p_column_label: label 
+      });
+
+      if (rpcError) {
+        console.error("Error adding field:", rpcError);
+        setNotification({ open: true, message: `Failed: ${rpcError.message}`, severity: 'error' });
+        return;
+      }
+
+      // 3. OPTIMISTIC UPDATE: Update local state immediately
+      setDynamicColumns(prev => [...prev, columnName]);
+      setColumnLabels(prev => ({ ...prev, [columnName]: label }));
+      
+      // 4. Initialize the form data for this new field
+      setFormData(prev => ({ ...prev, [columnName]: '' }));
+
+      // 5. Show success
+      setNotification({ open: true, message: 'Field added successfully', severity: 'success' });
+      
+      // 6. (Optional) Fetch schema in background to ensure sync eventually
+      fetchDynamicSchema(); 
     }
   };
 
@@ -362,24 +483,26 @@ const Staff = () => {
         const fileExt = file.name.split('.').pop();
         const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
         const fileName = `${Date.now()}_${cleanName}.${fileExt}`;
+        const filePath = `staff-docs/${fileName}`;
 
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('staff-documents')
-          .upload(`staff-docs/${fileName}`, file);
+          .upload(filePath, file);
 
         if (uploadError) {
           console.error("Upload error:", uploadError);
+          setNotification({ open: true, message: `Upload failed: ${file.name}`, severity: 'error' });
           continue;
         }
 
         const { data: publicUrlData } = supabase.storage
           .from('staff-documents')
-          .getPublicUrl(`staff-docs/${fileName}`);
+          .getPublicUrl(filePath);
 
         newDocs.push({
           name: file.name,
           url: publicUrlData.publicUrl,
-          path: `staff-docs/${fileName}`,
+          path: filePath,
           uploaded_at: new Date().toISOString()
         });
       }
@@ -388,7 +511,7 @@ const Staff = () => {
       setNotification({ open: true, message: 'Documents attached successfully', severity: 'success' });
     } catch (err) {
       console.error(err);
-      setNotification({ open: true, message: 'Failed to upload files', severity: 'error' });
+      setNotification({ open: true, message: 'An unexpected error occurred during upload.', severity: 'error' });
     } finally {
       setUploadingFiles(false);
     }
@@ -413,7 +536,7 @@ const Staff = () => {
             </Avatar>
             <Box sx={{ flexGrow: 1 }}>
               <Typography sx={{ fontWeight: 'bold', fontSize: '1.05rem', color: '#0c1f3f' }}>
-                {s.first_name} {s.last_name}
+                {s.title} {s.first_name} {s.last_name}
               </Typography>
               <Typography variant="caption" color="textSecondary">{s.ni_number || 'No NI'}</Typography>
             </Box>
@@ -423,28 +546,29 @@ const Staff = () => {
           <Divider sx={{ my: 1 }} />
 
           <Grid container spacing={1} sx={{ mb: 2, mt: 0.5 }}>
-            <Grid item xs={6}>
-              <Typography variant="caption" color="textSecondary" display="block">Email</Typography>
+            <Grid xs={6}>
+              <Typography variant="caption" color="textSecondary">Email</Typography>
               <Typography variant="body2" sx={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{s.email || '—'}</Typography>
             </Grid>
-            <Grid item xs={6}>
-              <Typography variant="caption" color="textSecondary" display="block">Phone</Typography>
+            <Grid xs={6}>
+              <Typography variant="caption" color="textSecondary">Phone</Typography>
               <Typography variant="body2">{s.phone || '—'}</Typography>
             </Grid>
-            <Grid item xs={6}>
-              <Typography variant="caption" color="textSecondary" display="block">DBS Status</Typography>
-              <Chip label={dbs.label} color={dbs.color} size="small" sx={{ mt: 0.5 }} />
+            <Grid xs={6}>
+              <Typography variant="caption" color="textSecondary">DBS Status</Typography>
+              <Box sx={{ mt: 0.5 }}><Chip label={dbs.label} color={dbs.color} size="small" /></Box>
             </Grid>
-            <Grid item xs={6}>
-              <Typography variant="caption" color="textSecondary" display="block">Right to Work</Typography>
-              {rtwValid === true && <Chip label="Valid" color="success" size="small" sx={{ mt: 0.5 }} />}
-              {rtwValid === false && <Chip label="Expired" color="error" size="small" sx={{ mt: 0.5 }} />}
-              {rtwValid === null && <Chip label="Not Set" color="default" size="small" sx={{ mt: 0.5 }} />}
+            <Grid xs={6}>
+              <Typography variant="caption" color="textSecondary">Right to Work</Typography>
+              <Box sx={{ mt: 0.5 }}>
+                {rtwValid === true && <Chip label="Valid" color="success" size="small" />}
+                {rtwValid === false && <Chip label="Expired" color="error" size="small" />}
+                {rtwValid === null && <Chip label="Not Set" color="default" size="small" />}
+              </Box>
             </Grid>
             
-            {/* NEW: Documents Section in Mobile Card */}
-            <Grid item xs={12}>
-              <Typography variant="caption" color="textSecondary" display="block">Documents</Typography>
+            <Grid xs={12}>
+              <Typography variant="caption" color="textSecondary">Documents</Typography>
               {docs.length > 0 ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
                   <Chip 
@@ -459,7 +583,6 @@ const Staff = () => {
                        if(docs[0]?.url) window.open(docs[0].url, '_blank');
                     }}
                   />
-                  {/* Show links for first 2 docs for quick access */}
                   {docs.slice(0, 2).map((doc, idx) => (
                     <Link 
                       key={idx} 
@@ -555,7 +678,6 @@ const Staff = () => {
                     <TableCell>Age</TableCell>
                     <TableCell>DBS Status</TableCell>
                     <TableCell>Right to Work</TableCell>
-                    {/* NEW: Documents Column Header */}
                     <TableCell>Documents</TableCell>
                     <TableCell align="center">Actions</TableCell>
                   </TableRow>
@@ -574,7 +696,7 @@ const Staff = () => {
                                   {s.first_name?.[0] || ''}{s.last_name?.[0] || ''}
                                 </Avatar>
                                 <Box>
-                                  <Typography sx={{ fontWeight: 'bold' }}>{s.first_name} {s.last_name}</Typography>
+                                  <Typography sx={{ fontWeight: 'bold' }}>{s.title} {s.first_name} {s.last_name}</Typography>
                                   <Typography variant="caption" color="textSecondary">{s.ni_number}</Typography>
                                 </Box>
                               </Box>
@@ -593,7 +715,6 @@ const Staff = () => {
                                   : <Chip label="Expired" color="error" size="small" />
                               ) : <Chip label="Not Set" color="default" size="small" />}
                             </TableCell>
-                            {/* NEW: Documents Column Data */}
                             <TableCell onClick={e => e.stopPropagation()}>
                               {docs.length > 0 ? (
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -660,7 +781,7 @@ const Staff = () => {
         >
           {/* Banner */}
           <Box sx={{ background: 'linear-gradient(135deg, #1a5fba 0%, #0c1f3f 100%)', color: 'white', py: 3, px: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ bgcolor: 'rgba(255,255,255,0.15)', p: 1.5, borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+            <Box sx={{ bgcolor: 'rgba(255,255,255,0.15)', p: 1.5, borderRadius: 3, display: 'flex', alignItems: 'center', justifyBox: 'center', backdropFilter: 'blur(4px)' }}>
               <ContactPage sx={{ fontSize: 32 }} />
             </Box>
             <Box sx={{ flexGrow: 1 }}>
@@ -691,63 +812,187 @@ const Staff = () => {
             {/* STEP 1: MANDATORY DETAILS PANEL */}
             {((!isViewing && activeStep === 0) || isViewing) && (
               <Box display={isViewing || activeStep === 0 ? 'block' : 'none'}>
-                <Grid container spacing={3}>
+                <Grid container spacing={3} sx={{ alignItems: 'flex-start' }}>
+                  
+                  {/* --- UPDATED: Title and First Name Combined --- */}
                   <Grid item xs={12} sm={6}>
-                    <TextField fullWidth label="First Name *" size="small" sx={{ bgcolor: 'white' }} value={formData.first_name} disabled={isViewing} onChange={e => setFormData({ ...formData, first_name: e.target.value })} />
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <FormControl 
+                        size="small" 
+                        sx={{ minWidth: 90, bgcolor: 'white' }}
+                        disabled={isViewing}
+                      >
+                        <InputLabel id="title-label">Title</InputLabel>
+                        <Select
+                          labelId="title-label"
+                          value={formData.title || ''}
+                          label="Title"
+                          onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                        >
+                          <MenuItem value="Mr.">Mr.</MenuItem>
+                          <MenuItem value="Mrs.">Mrs.</MenuItem>
+                          <MenuItem value="Ms.">Ms.</MenuItem>
+                          <MenuItem value="Miss">Miss</MenuItem>
+                          <MenuItem value="Dr.">Dr.</MenuItem>
+                          <MenuItem value="Other">Other</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      <TextField
+                        fullWidth
+                        label="First Name *"  
+                        size="small"
+                        sx={{ bgcolor: 'white' }}
+                        value={formData.first_name || ''}
+                        disabled={isViewing}
+                        onChange={e => setFormData({ ...formData, first_name: e.target.value })}
+                        error={!!errors.first_name}
+                        helperText={errors.first_name}
+                      />
+                    </Box>
                   </Grid>
+
                   <Grid item xs={12} sm={6}>
-                    <TextField fullWidth label="Last Name *" size="small" sx={{ bgcolor: 'white' }} value={formData.last_name} disabled={isViewing} onChange={e => setFormData({ ...formData, last_name: e.target.value })} />
+                    <TextField 
+                      fullWidth 
+                      label="Last Name *" 
+                      size="small" 
+                      sx={{ bgcolor: 'white' }} 
+                      value={formData.last_name || ''} 
+                      disabled={isViewing} 
+                      onChange={e => setFormData({ ...formData, last_name: e.target.value })}
+                      error={!!errors.last_name}
+                      helperText={errors.last_name}
+                    />
                   </Grid>
+                  
                   {/* Date of Birth */}
-<Grid item xs={12} sm={6}>
-  <Typography variant="caption" sx={{ fontWeight: 'bold', mb: 0.5, display: 'block', color: 'text.secondary', ml: 0.5 }}>
-    Date of Birth *
-  </Typography>
-  <TextField
-    fullWidth
-    type="date"
-    size="small"
-    sx={{ bgcolor: 'white' }}
-    value={formData.dob}
-    disabled={isViewing}
-    onChange={e => setFormData({ ...formData, dob: e.target.value })}
-  />
-</Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField fullWidth label="NI Number *" placeholder="AB123456C" size="small" sx={{ bgcolor: 'white' }} value={formData.ni_number} disabled={isViewing} onChange={e => setFormData({ ...formData, ni_number: e.target.value.toUpperCase() })} helperText="Format: 2 letters, 6 numbers, 1 letter" />
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      <Typography
+                        component="label"
+                        variant="caption"
+                        sx={{
+                          color: errors.dob ? 'error.main' : 'text.secondary',
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          ml: 0.5
+                        }}
+                      >
+                        Date of Birth *
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        type="date"
+                        size="small"
+                        sx={{ bgcolor: 'white' }}
+                        value={formData.dob || ''}
+                        disabled={isViewing}
+                        inputProps={{ max: "9999-12-31" }}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const yearPart = val.split('-')[0];
+                          if (yearPart && yearPart.length > 4) return;
+                          setFormData({ ...formData, dob: val });
+                        }}
+                        error={!!errors.dob}
+                        helperText={errors.dob}
+                      />
+                    </Box>
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6} >
+                    <TextField 
+                      fullWidth 
+                      label="NI Number *" 
+                      placeholder="AB123456C" 
+                      size="small" 
+                      sx={{ bgcolor: 'white' }} 
+                      value={formData.ni_number || ''} 
+                      disabled={isViewing} 
+                      onChange={e => setFormData({ ...formData, ni_number: e.target.value.toUpperCase() })} 
+                      helperText={errors.ni_number || "Format: 2 letters, 6 numbers, 1 letter"}
+                      error={!!errors.ni_number}
+                    />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField fullWidth label="Email *" type="email" size="small" sx={{ bgcolor: 'white' }} value={formData.email} disabled={isViewing} onChange={e => setFormData({ ...formData, email: e.target.value })} />
+                    <TextField 
+                      fullWidth 
+                      label="Email *" 
+                      type="email" 
+                      size="small" 
+                      sx={{ bgcolor: 'white' }} 
+                      value={formData.email || ''} 
+                      disabled={isViewing} 
+                      onChange={e => setFormData({ ...formData, email: e.target.value })}
+                      error={!!errors.email}
+                      helperText={errors.email}
+                    />
                   </Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField fullWidth label="Phone *" size="small" sx={{ bgcolor: 'white' }} value={formData.phone} disabled={isViewing} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+                    <TextField 
+                      fullWidth 
+                      label="Phone *" 
+                      size="small" 
+                      sx={{ bgcolor: 'white' }} 
+                      value={formData.phone || ''} 
+                      disabled={isViewing} 
+                      onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                      error={!!errors.phone}
+                      helperText={errors.phone}
+                    />
                   </Grid>
+                  
                   {/* Joined Date */}
-<Grid item xs={12} sm={6}>
-  <Typography variant="caption" sx={{ fontWeight: 'bold', mb: 0.5, display: 'block', color: 'text.secondary', ml: 0.5 }}>
-    Joined Date
-  </Typography>
-  <TextField
-    fullWidth
-    type="date"
-    size="small"
-    sx={{ bgcolor: 'white' }}
-    value={formData.joined_date}
-    disabled={isViewing}
-    onChange={e => setFormData({ ...formData, joined_date: e.target.value })}
-  />
-</Grid>
                   <Grid item xs={12} sm={6}>
-                    <TextField fullWidth label="Years of Service" size="small" value={calculateYearsService(formData.joined_date)} disabled InputProps={{ readOnly: true }} />
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      <Typography
+                        component="label"
+                        variant="caption"
+                        sx={{
+                          color: 'text.secondary',
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          ml: 0.5
+                        }}
+                      >
+                        Joined Date
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        type="date"
+                        size="small"
+                        sx={{ bgcolor: 'white' }}
+                        value={formData.joined_date || ''}
+                        disabled={isViewing}
+                        inputProps={{ max: "9999-12-31" }}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const yearPart = val.split('-')[0];
+                          if (yearPart && yearPart.length > 4) return;
+                          setFormData({ ...formData, joined_date: val });
+                        }}
+                      />
+                    </Box>
                   </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField 
+                      fullWidth 
+                      label="Years of Service" 
+                      size="small" 
+                      value={calculateYearsService(formData.joined_date) || 0} 
+                      disabled 
+                      InputProps={{ readOnly: true }} 
+                    />
+                  </Grid>
+                  
+                  {/* Compliance Check Section */}
                   <Grid item xs={12}>
                     <Divider sx={{ my: 1 }} />
-                    <Typography variant="subtitle2" color="primary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
-                      <AdminPanelSettings fontSize="small" /> Compliance Overview
+                    <Typography variant="subtitle2" color="primary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', mb: 2, mt: 1 }}>
+                      <AdminPanelSettings fontSize="small" /> Compliance Check
                     </Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+                    <Stack direction="row" spacing={1.5} flexWrap="wrap">
                       <Chip label={`Age Check: ${calculateAge(formData.dob)}`} variant="outlined" color={calculateAge(formData.dob) >= 18 ? "success" : "error"} />
                       {getDbsStatus(formData.dbs_expiry).label !== 'No DBS' && (
                         <Chip label={`DBS Tracking: ${getDbsStatus(formData.dbs_expiry).label}`} color={getDbsStatus(formData.dbs_expiry).color} />
@@ -762,13 +1007,13 @@ const Staff = () => {
             {((!isViewing && activeStep === 1) || isViewing) && (
               <Box display={isViewing || activeStep === 1 ? 'block' : 'none'} sx={{ mt: isViewing ? 4 : 0 }}>
                 {isViewing && <Typography variant="h6" color="primary" sx={{ mb: 2, fontWeight: 'bold' }}>Additional Details</Typography>}
-                <Grid container spacing={3}>
+                <Grid container spacing={3} sx={{ alignItems: 'flex-start' }}>
                   <Grid item xs={12} sm={6}>
                     <FormControl fullWidth size="small" variant="outlined" sx={{ bgcolor: 'white' }}>
                       <InputLabel id="role-category-select-label" shrink>Role Category</InputLabel>
                       <Select
                         labelId="role-category-select-label"
-                        value={formData.role}
+                        value={formData.role || ''}
                         notched={true}
                         label="Role Category"
                         disabled={isViewing}
@@ -782,77 +1027,129 @@ const Staff = () => {
 
                   {!isViewing && (
                     <Grid item xs={12} sm={6}>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                         <TextField size="small" placeholder="New system role..." value={newRoleInput} onChange={e => setNewRoleInput(e.target.value)} sx={{ flexGrow: 1, bgcolor: 'white' }} />
-                        <Button size="small" variant="contained" sx={{ bgcolor: '#0c1f3f', px: 2 }} onClick={handleAddRole}>Quick Add</Button>
+                        <Button size="small" variant="contained" sx={{ bgcolor: '#0c1f3f', px: 2, height: '40px' }} onClick={handleAddRole}>Quick Add</Button>
                       </Box>
                     </Grid>
                   )}
 
                   <Grid item xs={12} sm={6}>
-                    <TextField fullWidth label="Contracted Hours" type="number" size="small" sx={{ bgcolor: 'white' }} value={formData.contracted_hours} disabled={isViewing} onChange={e => setFormData({ ...formData, contracted_hours: e.target.value })} />
+                    <TextField fullWidth label="Contracted Hours" type="number" size="small" sx={{ bgcolor: 'white' }} value={formData.contracted_hours || ''} disabled={isViewing} onChange={e => setFormData({ ...formData, contracted_hours: e.target.value })} />
                   </Grid>
 
                   {!isViewing && (
                     <Grid item xs={12} sm={6}>
-                      <TextField fullWidth label="Initial Password" type="password" size="small" sx={{ bgcolor: 'white' }} value={formData.temp_password} onChange={e => setFormData({ ...formData, temp_password: e.target.value })} helperText="Leave blank to keep existing" />
+                      <TextField fullWidth label="Initial Password" type="password" size="small" sx={{ bgcolor: 'white' }} value={formData.temp_password || ''} onChange={e => setFormData({ ...formData, temp_password: e.target.value })} helperText="Leave blank to keep existing" />
                     </Grid>
                   )}
 
                   {/* Right to Work Expiry */}
-<Grid item xs={12} sm={6}>
-  <Typography variant="caption" sx={{ fontWeight: 'bold', mb: 0.5, display: 'block', color: 'text.secondary', ml: 0.5 }}>
-    Right to Work Expiry
-  </Typography>
-  <TextField
-    fullWidth
-    type="date"
-    size="small"
-    sx={{ bgcolor: 'white' }}
-    value={formData.right_to_work_expiry}
-    disabled={isViewing}
-    onChange={e => setFormData({ ...formData, right_to_work_expiry: e.target.value })}
-  />
-</Grid>
-
-                  <Grid item xs={12} sm={6} sx={{ display: 'flex', alignItems: 'center' }}>
-                    <FormControlLabel control={<Checkbox checked={formData.dbs_checked} disabled={isViewing} onChange={e => setFormData({ ...formData, dbs_checked: e.target.checked })} />} label="DBS Checked?" />
-                  </Grid>
-
-                  {/* DBS Expiry (Inside the dbs_checked conditional) */}
-{formData.dbs_checked && (
-  <Grid item xs={12} sm={6}>
-    <Typography variant="caption" sx={{ fontWeight: 'bold', mb: 0.5, display: 'block', color: 'text.secondary', ml: 0.5 }}>
-      DBS Expiry Date *
-    </Typography>
-    <TextField
-      fullWidth
-      type="date"
-      size="small"
-      sx={{ bgcolor: 'white' }}
-      value={formData.dbs_expiry}
-      disabled={isViewing}
-      onChange={e => setFormData({ ...formData, dbs_expiry: e.target.value })}
-    />
-  </Grid>
-)}
-
-                  <Grid item xs={12}>
-                    <Divider sx={{ my: 1 }} />
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>Additional Custom Fields</Typography>
-                      {!isViewing && <Button size="small" variant="outlined" onClick={handleAddCustomField}>+ Add Field</Button>}
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      <Typography
+                        component="label"
+                        variant="caption"
+                        sx={{
+                          color: 'text.secondary',
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          ml: 0.5
+                        }}
+                      >
+                        Right to Work Expiry
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        type="date"
+                        size="small"
+                        sx={{ bgcolor: 'white' }}
+                        value={formData.right_to_work_expiry || ''}
+                        disabled={isViewing}
+                        inputProps={{ max: "9999-12-31" }}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const yearPart = val.split('-')[0];
+                          if (yearPart && yearPart.length > 4) return;
+                          setFormData({ ...formData, right_to_work_expiry: val });
+                        }}
+                      />
                     </Box>
                   </Grid>
 
-                  {customFields.map(field => (
-                    <Grid item xs={12} sm={6} key={field.id}>
-                      <TextField fullWidth label={field.label} size="small" sx={{ bgcolor: 'white' }} value={formData.custom_data[field.label] || ''} disabled={isViewing} onChange={e => {
-                        const newCustom = { ...formData.custom_data, [field.label]: e.target.value };
-                        setFormData({ ...formData, custom_data: newCustom });
-                      }} />
+                  <Grid item xs={12} sm={6} sx={{ display: 'flex', alignItems: 'center', minHeight: '40px' }}>
+                    <FormControlLabel control={<Checkbox checked={!!formData.dbs_checked} disabled={isViewing} onChange={e => setFormData({ ...formData, dbs_checked: e.target.checked })} />} label="DBS Checked?" />
+                  </Grid>
+
+                  {/* DBS Expiry Date */}
+                  {formData.dbs_checked && (
+                    <Grid item xs={12} sm={6}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                        <Typography
+                          component="label"
+                          variant="caption"
+                          sx={{
+                            color: errors.dbs_expiry ? 'error.main' : 'text.secondary',
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
+                            ml: 0.5
+                          }}
+                        >
+                          DBS Expiry Date *
+                        </Typography>
+                        <TextField
+                          fullWidth
+                          type="date"
+                          size="small"
+                          sx={{ bgcolor: 'white' }}
+                          value={formData.dbs_expiry || ''}
+                          disabled={isViewing}
+                          inputProps={{ max: "9999-12-31" }}
+                          onChange={e => {
+                            const val = e.target.value;
+                            const yearPart = val.split('-')[0];
+                            if (yearPart && yearPart.length > 4) return;
+                            setFormData({ ...formData, dbs_expiry: val });
+                          }}
+                          error={!!errors.dbs_expiry}
+                          helperText={errors.dbs_expiry}
+                        />
+                      </Box>
                     </Grid>
-                  ))}
+                  )}
+
+                  {/* DYNAMIC COLUMNS SECTION */}
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, mt: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', fontSize: '1.1rem' }}>Additional Fields</Typography>
+                      {!isViewing && <Button size="small" variant="outlined" onClick={handleAddCustomField} startIcon={<AddIcon />}>+ Add Field</Button>}
+                    </Box>
+                  </Grid>
+
+                  {dynamicColumns.length > 0 ? (
+                    dynamicColumns.map(colName => (
+                      <Grid item xs={12} sm={6} key={colName}>
+                        <TextField 
+                          fullWidth 
+                          label={formatLabel(colName)} 
+                          size="small" 
+                          sx={{ bgcolor: 'white' }} 
+                          value={formData[colName] || ''} 
+                          disabled={isViewing} 
+                          onChange={e => {
+                            setFormData({ ...formData, [colName]: e.target.value });
+                          }} 
+                        />
+                      </Grid>
+                    ))
+                  ) : (
+                    <Grid item xs={12}>
+                      <Typography variant="body2" color="textSecondary" align="center" sx={{ py: 2, border: '1px dashed #ccc', borderRadius: 1 }}>
+                        No custom fields defined yet. Click "+ Add Field" to create one.
+                      </Typography>
+                    </Grid>
+                  )}
                 </Grid>
               </Box>
             )}
@@ -879,7 +1176,7 @@ const Staff = () => {
                   </Button>
                 )}
 
-                {formData.documents.length > 0 ? (
+                {formData.documents && formData.documents.length > 0 ? (
                   <List dense sx={{ bgcolor: 'white', borderRadius: 2, border: '1px solid #e0e0e0', p: 1 }}>
                     {formData.documents.map((doc, idx) => (
                       <ListItem
@@ -925,7 +1222,22 @@ const Staff = () => {
                 {activeStep > 0 && <Button sx={{ color: '#6c757d' }} onClick={() => setActiveStep(prev => prev - 1)} startIcon={<ArrowBack />}>Back</Button>}
 
                 {activeStep < steps.length - 1 ? (
-                  <Button variant="contained" sx={{ bgcolor: '#1a5fba' }} onClick={() => setActiveStep(prev => prev + 1)} endIcon={<ArrowForward />}>Next Step</Button>
+                  <Button 
+                    variant="contained" 
+                    sx={{ bgcolor: '#1a5fba' }} 
+                    onClick={() => {
+                      if (activeStep === 0) {
+                        if (!validateStep1()) {
+                          setNotification({ open: true, message: "Please fix validation errors before proceeding.", severity: 'warning' });
+                          return;
+                        }
+                      }
+                      setActiveStep(prev => prev + 1);
+                    }} 
+                    endIcon={<ArrowForward />}
+                  >
+                    Next Step
+                  </Button>
                 ) : (
                   <Button variant="contained" sx={{ bgcolor: '#1a5fba', fontWeight: 'bold', px: 3 }} onClick={handleSave}>Save Staff Member</Button>
                 )}
