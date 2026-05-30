@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box, Typography, IconButton, Chip, 
+  Box, Typography, IconButton, Chip,
   Drawer, List, Button, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, Select, MenuItem, FormControl, InputLabel,
-  CircularProgress, Alert, Paper, useMediaQuery, useTheme
+  CircularProgress, Alert, Paper, useMediaQuery, useTheme, Avatar, styled
 } from '@mui/material';
 import {
-  ChevronLeft, ChevronRight, Add as AddIcon, Close as CloseIcon
+  ChevronLeft, ChevronRight, Add as AddIcon, Close as CloseIcon,
+  CheckCircle, Error, WarningAmber // FIXED: Changed ErrorOutline to Error
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient';
+import { logActivity } from '../utils/logger'; // 1. IMPORT LOGGER
 
 // ─────────────────────────────────────────────────────────────
 // CONFIG & CONSTANTS
@@ -25,6 +27,28 @@ const COLORS = {
   text: '#1a2535',
   muted: '#5e7187'
 };
+
+// Custom Gradient Button for the Modal
+const GradientButton = styled(Button)(({ theme, colorType = 'success', ...props }) => ({
+  background: colorType === 'success' 
+    ? 'linear-gradient(45deg, #6366f1 30%, #a855f7 90%)' 
+    : colorType === 'error'
+    ? 'linear-gradient(45deg, #ef4444 30%, #b91c1c 90%)'
+    : 'linear-gradient(45deg, #f59e0b 30%, #d97706 90%)',
+  border: 0,
+  borderRadius: 12,
+  color: 'white',
+  height: 48,
+  padding: '0 30px',
+  boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
+  fontSize: '16px',
+  fontWeight: 600,
+  textTransform: 'none',
+  '&:hover': {
+    boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+    opacity: 0.95,
+  },
+}));
 
 // Role Constants (matching your DB)
 const ROLE_ID = {
@@ -105,6 +129,14 @@ const Rota = () => {
   const [selectedRoleFilter, setSelectedRoleFilter] = useState('');
   const [selectedClientFilter, setSelectedClientFilter] = useState('');
 
+  // --- NEW ATTRACTIVE MODAL STATE ---
+  const [infoModal, setInfoModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    type: 'success' // 'success' | 'error' | 'warning'
+  });
+
   // ─────────────────────────────────────────────────────────────
   // EFFECTS & LIFECYCLES
   // ─────────────────────────────────────────────────────────────
@@ -153,7 +185,6 @@ const Rota = () => {
       const { data: patternsData } = await supabase.from('shift_patterns').select('*');
       if (patternsData) setShiftPatterns(patternsData);
     } catch (err) {
-      console.error("Reference payload fetch failure:", err);
     }
   };
 
@@ -545,7 +576,13 @@ const Rota = () => {
   const handleOpenCreateModal = (dateStr) => {
     // BLOCK ACCESS FOR HR AND STAFF
     if (userRoleId === ROLE_ID.HR_OFFICER || userRoleId === ROLE_ID.STAFF) {
-      alert("You do not have permission to create shifts.");
+      // alert("You do not have permission to create shifts.");
+      setInfoModal({
+        open: true,
+        title: "Access Denied",
+        message: "You do not have permission to create shifts.",
+        type: 'error'
+      });
       return;
     }
 
@@ -562,39 +599,57 @@ const Rota = () => {
   };
 
    const handleSaveShift = async () => {
-    // 1. Debug Logging (Check your browser console F12)
-    console.log("Attempting to save shift with data:", formData);
-
-    // 2. Validation Checks
+    // 1. Validation Checks
     if (!formData.client_id) {
-      return alert("Error: Care Home Location is required.");
+      return setInfoModal({
+        open: true, title: "Missing Information", message: "Care Home Location is required.", type: 'error'
+      });
     }
     if (!formData.date) {
-      return alert("Error: Shift Date is required.");
+      return setInfoModal({
+        open: true, title: "Missing Information", message: "Shift Date is required.", type: 'error'
+      });
     }
     if (!formData.start_time || !formData.end_time) {
-      return alert("Error: Start and End times are required. Please select a Shift Pattern.");
+      return setInfoModal({
+        open: true, title: "Missing Information", message: "Start and End times are required. Please select a Shift Pattern.", type: 'error'
+      });
     }
     if (!formData.role) {
-      return alert("Error: Staff Role Category is required.");
+      return setInfoModal({
+        open: true, title: "Missing Information", message: "Staff Role Category is required.", type: 'error'
+      });
     }
 
-    // 3. Database Insert
+    // 2. Database Insert
     const { error } = await supabase.from('shifts').insert([{
       client_id: formData.client_id, 
       date: formData.date,
       start_time: formData.start_time, 
       end_time: formData.end_time, 
       role: formData.role,
-      notes: formData.notes || '' // Ensure notes is not undefined
+      notes: formData.notes || ''
     }]);
 
-    // 4. Handle Response
+    // 3. Handle Response
     if (error) {
-      console.error("Database Error:", error);
-      alert("Failed to publish shift: " + error.message);
+      setInfoModal({
+        open: true,
+        title: "System Error",
+        message: "Failed to publish shift: " + error.message,
+        type: 'error'
+      });
     } else {
-      alert("Shift published successfully!");
+      // 2. LOG THE ACTION
+      const clientName = clients.find(c => c.id === formData.client_id)?.name || 'Unknown Location';
+      await logActivity("Created Shift", `Date: ${formData.date}, Location: ${clientName}, Role: ${formData.role}`);
+
+      setInfoModal({
+        open: true,
+        title: "Published Successfully!",
+        message: "The new shift has been added to the roster.",
+        type: 'success'
+      });
       setIsCreateModalOpen(false);
       fetchDataForView();
     }
@@ -603,7 +658,7 @@ const Rota = () => {
   const handleOpenAssignModal = async (shift) => {
     // BLOCK ACCESS FOR HR AND STAFF
     if (userRoleId === ROLE_ID.HR_OFFICER || userRoleId === ROLE_ID.STAFF) {
-      return; // Silent fail
+      return; 
     }
 
     setAssignModalShift(shift);
@@ -622,8 +677,14 @@ const Rota = () => {
   const handleAssignStaff = async (staffId) => {
     if (!assignModalShift) return;
     const { error } = await supabase.from('shifts').update({ assigned_id: staffId }).eq('id', assignModalShift.id);
-    if (error) alert("Could not update record allocations: " + error.message);
-    else {
+    if (error) {
+      setInfoModal({
+        open: true,
+        title: "Update Failed",
+        message: "Could not update record allocations: " + error.message,
+        type: 'error'
+      });
+    } else {
       setIsAssignModalOpen(false);
       if(selectedDate === assignModalShift.date) setDrawerOpen(false);
       fetchDataForView();
@@ -676,15 +737,7 @@ const Rota = () => {
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <Select 
-              value={selectedRoleFilter} displayEmpty onChange={(e) => setSelectedRoleFilter(e.target.value)}
-              sx={{ borderRadius: '20px', bgcolor: '#fff' }}
-            >
-              <MenuItem value="">All Roles</MenuItem>
-              {roles.map(r => <MenuItem key={r.id} value={r.name}>{r.name}</MenuItem>)}
-            </Select>
-          </FormControl>
+          
 
           <FormControl size="small" sx={{ minWidth: 160 }}>
             <Select 
@@ -750,19 +803,7 @@ const Rota = () => {
         </Box>
       )}
 
-      {/* ─── DYNAMIC STATISTICS BAR BANNER ─── */}
-      <Paper elevation={0} sx={{ 
-        p: '10px 16px', bgcolor: COLORS.dark, color: '#fff', borderRadius: '12px', 
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2
-      }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <Typography variant="caption" sx={{ color: '#93c5fd', fontWeight: 700, letterSpacing: 0.5 }}>ROTA GENERAL METRICS:</Typography>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>Total Demands: <span style={{ fontWeight: 800 }}>{totalShiftsCount}</span></Typography>
-          <Typography variant="body2" style={{ color: '#fca5a5', fontWeight: 600 }}>Open Allocations: <span style={{ fontWeight: 800 }}>{unassignedShiftsCount}</span></Typography>
-          <Typography variant="body2" style={{ color: '#86efac', fontWeight: 600 }}>Covered: <span style={{ fontWeight: 800 }}>{filledShiftsCount} ({filledPercentage}%)</span></Typography>
-        </Box>
-        <Typography variant="caption" sx={{ opacity: 0.7, fontSize: 10 }}>* Filters are dynamically applied to summary calculations.</Typography>
-      </Paper>
+     
 
       {/* RIGHT SIDE PANEL DRAWER */}
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)} PaperProps={{ sx: { width: isMobile ? '100%' : 340 } }}>
@@ -908,6 +949,47 @@ const Rota = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setIsAssignModalOpen(false)} sx={{ color: COLORS.muted }}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ─── ATTRACTIVE SUCCESS/ERROR MODAL ─── */}
+      <Dialog open={infoModal.open} onClose={() => setInfoModal({ ...infoModal, open: false })} PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden', maxWidth: 400 } }}>
+        <Box sx={{ 
+            textAlign: 'center', 
+            background: infoModal.type === 'success' 
+              ? 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' 
+              : infoModal.type === 'error'
+              ? 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)'
+              : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+            color: '#fff', 
+            py: 4, 
+            px: 2,
+            position: 'relative'
+          }}>
+          <Avatar sx={{ 
+              width: 64, height: 64, bgcolor: 'rgba(255,255,255,0.2)', 
+              margin: '0 auto 16px', 
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }}>
+            {infoModal.type === 'success' ? <CheckCircle sx={{ fontSize: 40, color: '#fff' }} /> : 
+             infoModal.type === 'error' ? <Error sx={{ fontSize: 40, color: '#fff' }} /> : 
+             <WarningAmber sx={{ fontSize: 40, color: '#fff' }} />}
+          </Avatar>
+          <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>{infoModal.title}</Typography>
+        </Box>
+        <DialogContent sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="body1" sx={{ color: '#64748b' }}>
+            {infoModal.message}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 3, pt: 0 }}>
+          <GradientButton 
+            onClick={() => setInfoModal({ ...infoModal, open: false })} 
+            colorType={infoModal.type}
+            autoFocus
+          >
+            Okay
+          </GradientButton>
         </DialogActions>
       </Dialog>
 

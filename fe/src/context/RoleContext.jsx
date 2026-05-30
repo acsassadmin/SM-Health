@@ -13,7 +13,6 @@ export const RoleProvider = ({ children }) => {
   const activeExecutionId = useRef(0);
 
   const applyStaffFallback = (reason) => {
-    console.warn(`🛡️ [RoleContext] Fallback: ${reason}`);
     setUserRole('Staff');
     setPermissions(['staff_read', 'rota_read', 'timesheets_submit', 'settings_read']);
     setLoading(false);
@@ -31,7 +30,6 @@ export const RoleProvider = ({ children }) => {
     activeExecutionId.current += 1;
     const currentExecutionId = activeExecutionId.current;
 
-    console.log("🔍 [RoleContext] Fetching Dynamic Role & Permissions for UID:", userId);
 
     try {
       // STEP 1: Get role_id from user_roles
@@ -42,7 +40,6 @@ export const RoleProvider = ({ children }) => {
         .single(); 
 
       if (mappingError) {
-        console.error("❌ [RoleContext] Mapping Error:", mappingError.message);
         throw new Error("User role mapping not found");
       }
 
@@ -60,7 +57,6 @@ export const RoleProvider = ({ children }) => {
         .single();
 
       if (roleError) {
-        console.error("❌ [RoleContext] App Role Error:", roleError.message);
         throw new Error("App role definition not found");
       }
 
@@ -71,7 +67,6 @@ export const RoleProvider = ({ children }) => {
       const dbSlug = (roleData.slug || '').toLowerCase().trim();
       const dbName = roleData.name || 'Staff';
       
-      console.log(`🎉 [RoleContext] Role Found: [${dbName}]`);
       setUserRole(dbName);
 
       // STEP 3: Fetch Permissions from Database (Dynamic)
@@ -83,7 +78,6 @@ export const RoleProvider = ({ children }) => {
         .eq('role_id', roleId);
 
       if (permsError) {
-        console.error("❌ [RoleContext] Permissions Error:", permsError.message);
         throw new Error("Failed to load permissions");
       }
 
@@ -101,7 +95,6 @@ export const RoleProvider = ({ children }) => {
           .map(p => `${p.permissions.resource}_${p.permissions.action}`);
       }
 
-      console.log("🔓 [RoleContext] Final Permissions:", perms);
 
       setPermissions(perms);
       setLoading(false);
@@ -109,7 +102,6 @@ export const RoleProvider = ({ children }) => {
       return dbName;
 
     } catch (err) {
-      console.error("❌ [RoleContext] Exception:", err.message);
       if (currentExecutionId === activeExecutionId.current) {
         applyStaffFallback(err.message || "Database Query Error");
       }
@@ -130,7 +122,6 @@ export const RoleProvider = ({ children }) => {
           setLoading(false);
         }
       } catch (e) {
-        console.error("Init session fatal error:", e);
         setLoading(false);
       } finally {
         initialized = true;

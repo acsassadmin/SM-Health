@@ -116,7 +116,7 @@ const Dashboard = () => {
             text: `Assigned ${staffName} to shift at ${careHomeName}`,
             time: dateStr,
             careHome: careHomeName,
-            staffName: staffName // Added for easier table rendering
+            staffName: staffName
           };
         });
         setRecentActivity(formattedActivity);
@@ -140,7 +140,6 @@ const Dashboard = () => {
       setUnassignedShifts(unassignedData || []);
 
     } catch (error) {
-      console.error("Dashboard Error:", error);
       setDbError(error.message);
     } finally {
       setLoading(false);
@@ -156,7 +155,6 @@ const Dashboard = () => {
       .eq('role', role);
 
     if (error) {
-      console.error("Error fetching staff:", error);
     } else {
       setAvailableStaff(data || []);
     }
@@ -202,7 +200,6 @@ const Dashboard = () => {
       setIsAssignModalOpen(false);
       fetchDashboardData(); // Refresh dashboard lists
     } catch (err) {
-      console.error("Error assigning staff:", err);
       alert("Failed to assign staff.");
     }
   };

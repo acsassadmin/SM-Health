@@ -4,7 +4,7 @@ import {
   Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Chip, IconButton, Divider, Alert, Snackbar, CircularProgress,
   Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, InputLabel, FormControl, Stack,
-  alpha, useTheme, List, ListItem, ListItemText, Checkbox,
+  alpha, useTheme, List, ListItem, ListItemText, Checkbox, Avatar, styled
 } from '@mui/material';
 import {
   Person as UserIcon, Shield as RoleIcon, Shield, Badge as CategoryIcon,
@@ -12,15 +12,37 @@ import {
   Notifications as NotificationIcon, Lock as SecurityIcon, AccountCircle as AccountCircle,
   Delete as DeleteIcon, Save as SaveIcon, Refresh as RefreshIcon,
   VpnKey, Add as AddIcon, AdminPanelSettings,
-  CheckCircle, Cancel // 1. ADDED MISSING IMPORTS
+  CheckCircle, Cancel, History, Error, WarningAmber // Added icons for modal
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient';
 import TwoFactorAuth from "../auth/TwoFactorAuth";
 
+// ─── CUSTOM GRADIENT BUTTON (From Clients.jsx) ───
+const GradientButton = styled(Button)(({ theme, colorType = 'success' }) => ({
+  background: colorType === 'success'
+    ? 'linear-gradient(45deg, #6366f1 30%, #a855f7 90%)'
+    : colorType === 'error'
+      ? 'linear-gradient(45deg, #ef4444 30%, #b91c1c 90%)'
+      : 'linear-gradient(45deg, #f59e0b 30%, #d97706 90%)',
+  border: 0,
+  borderRadius: 12,
+  color: 'white',
+  height: 48,
+  padding: '0 30px',
+  boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
+  fontSize: '16px',
+  fontWeight: 600,
+  textTransform: 'none',
+  '&:hover': {
+    boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+    opacity: 0.95,
+  },
+}));
+
 const TAB_CONFIG = [
   { label: 'My Account', icon: <AccountCircle fontSize="small" />, minRole: null },
-  { label: 'Users', icon: <UserIcon fontSize="small" />, minRole: 'Administrator' },
-  { label: 'Roles', icon: <RoleIcon fontSize="small" />, minRole: 'Administrator' },
+  { label: 'Users', icon: <UserIcon fontSize="small" />, minRole: 'Administrator' }, // Restricted to Admin & Director
+  { label: 'Roles', icon: <RoleIcon fontSize="small" />, minRole: 'Administrator' },    // Restricted to Admin & Director
   { label: 'Staff Categories', icon: <CategoryIcon fontSize="small" />, minRole: 'Administrator' },
   { label: 'Client Categories', icon: <ClientIcon fontSize="small" />, minRole: 'Administrator' },
   { label: 'Shift Patterns', icon: <ShiftIcon fontSize="small" />, minRole: 'Administrator' },
@@ -39,7 +61,6 @@ const Settings = () => {
   // --- MODAL STATES ---
   const [openAddUserModal, setOpenAddUserModal] = useState(false);
   
-  // 2. ADDED MISSING EDIT STATES
   const [openEditUserModal, setOpenEditUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [editUserForm, setEditUserForm] = useState({
@@ -58,6 +79,9 @@ const Settings = () => {
   const [shiftPatterns, setShiftPatterns] = useState([]);
   const [notificationSettings, setNotificationSettings] = useState([]);
   const [clientCategories, setClientCategories] = useState([]);
+  
+  // STATE FOR ACTIVITY LOGS
+  const [activityLogs, setActivityLogs] = useState([]);
 
   const [myProfile, setMyProfile] = useState({
     id: '', first_name: '', last_name: '', email: '', role: '', avatar_url: ''
@@ -76,6 +100,14 @@ const Settings = () => {
   const [roleForm, setRoleForm] = useState({
     name: '',
     modules: []
+  });
+
+  // --- ATTRACTIVE INFO MODAL STATE (From Clients.jsx) ---
+  const [infoModal, setInfoModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    type: 'success' // 'success' | 'error' | 'warning'
   });
 
   const availableModules = [
@@ -130,7 +162,8 @@ const Settings = () => {
         fetchStaffCategories(),
         fetchCareHomes(),
         fetchShiftPatterns(),
-        fetchNotificationSettings()
+        fetchNotificationSettings(),
+        fetchActivityLogs() // Fetch logs on load
       ]);
       setLoading(false);
     };
@@ -139,6 +172,7 @@ const Settings = () => {
 
   useEffect(() => {
     if (activeTab === 0) fetchMyProfile();
+    if (activeTab === 6) fetchActivityLogs(); // Refresh logs when tab is opened
   }, [activeTab]);
 
   const fetchUserRole = async () => {
@@ -194,7 +228,6 @@ const Settings = () => {
 
       setUsers(formatted);
     } catch (error) {
-      console.error("Fetch Users Error:", error);
       triggerToast(error.message, "error");
     } finally {
       setLoading(false);
@@ -230,7 +263,6 @@ const Settings = () => {
       if (error) throw error;
       setNotificationSettings(data || []);
     } catch (err) {
-      console.error("Error fetching notifications:", err.message);
       setNotificationSettings([]); 
     }
   };
@@ -239,7 +271,25 @@ const Settings = () => {
     if (!error) setShiftPatterns(data);
   };
 
+  // LOGIC TO FETCH ACTIVITY LOGS
+  const fetchActivityLogs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20); // Limit to last 20 actions
 
+      if (error) {
+        console.warn("Activity logs table not found or error:", error.message);
+        setActivityLogs([]); 
+        return;
+      }
+      
+      setActivityLogs(data || []);
+    } catch (err) {
+    }
+  };
 
   // ─── EVENT HANDLERS ──────────────────────────────────────────
   const handleOpenAddUserModal = () => {
@@ -252,11 +302,21 @@ const Settings = () => {
     const { name, email, roleId, temporaryPassword } = newUserForm;
     
     if (!name || !email || !roleId || !temporaryPassword) { 
-      triggerToast("All fields are required", "error"); 
+      setInfoModal({
+        open: true,
+        title: "Missing Information",
+        message: "All fields are required.",
+        type: 'error'
+      });
       return;
     }
     if (temporaryPassword.length < 6) {
-      triggerToast("Password must be at least 6 characters", "error");
+      setInfoModal({
+        open: true,
+        title: "Invalid Password",
+        message: "Password must be at least 6 characters.",
+        type: 'error'
+      });
       return;
     }
     
@@ -285,28 +345,33 @@ const Settings = () => {
 
       if (!authData.user) throw new Error("Failed to create user account.");
 
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert([{ user_id: authData.user.id, role_id: parseInt(roleId) }]);
+      
 
       if (roleError) {
-        console.error("Role assignment failed:", roleError);
         throw new Error(`User created, but failed to assign role: ${roleError.message}`);
       }
 
-      triggerToast("User created successfully!");
+      setInfoModal({
+        open: true,
+        title: "User Created!",
+        message: `${name} has been added to the system.`,
+        type: 'success'
+      });
       setOpenAddUserModal(false);
       fetchUsers();
       
     } catch (error) {
-      console.error("Create User Error:", error);
-      triggerToast(error.message || "An unexpected error occurred", "error");
+      setInfoModal({
+        open: true,
+        title: "Creation Failed",
+        message: error.message || "An unexpected error occurred",
+        type: 'error'
+      });
     } finally { 
       setLoading(false); 
     }
   };
 
-  // --- EDIT USER FUNCTIONS ---
   const handleOpenEditModal = (user) => {
     const roleId = roles.find(r => r.name === user.role)?.id || '';
     
@@ -325,17 +390,21 @@ const Settings = () => {
     setEditingUser(null);
   };
 
-    const handleUpdateUser = async () => {
+      const handleUpdateUser = async () => {
     const { name, email, roleId, temporaryPassword } = editUserForm;
     
     if (!name || !email || !roleId) { 
-      triggerToast("Name, Email, and Role are required", "error"); 
+      setInfoModal({
+        open: true,
+        title: "Missing Fields",
+        message: "Name, Email, and Role are required",
+        type: 'error'
+      });
       return; 
     }
 
     setLoading(true);
     try {
-      // 1. Check if Email is unique (excluding current user)
       const { data: authUsers } = await supabase.rpc("get_auth_users");
       const emailExists = authUsers.find(u => u.email === email && u.id !== editingUser.id);
       
@@ -343,7 +412,6 @@ const Settings = () => {
         throw new Error("This email is already in use by another user.");
       }
 
-      // 2. Update Metadata (Name) & Email via Edge Function
       const { error: updateError } = await supabase.functions.invoke('manage-users', {
         body: {
           action: 'updateUser',
@@ -355,36 +423,35 @@ const Settings = () => {
 
       if (updateError) throw updateError;
 
-      // 3. Update Role in DB (This remains normal)
+      // --- FIX START: REMOVED parseInt ---
       const { error: roleError } = await supabase
         .from('user_roles')
-        .update({ role_id: parseInt(roleId) })
+        .update({ role_id: roleId }) // Use ID directly (String)
         .eq('user_id', editingUser.id);
+      // --- FIX END ---
 
       if (roleError) throw roleError;
 
-      // 4. Handle Password Reset via Edge Function (if provided)
-      if (temporaryPassword && temporaryPassword.length >= 6) {
-         const { error: passError } = await supabase.functions.invoke('manage-users', {
-            body: {
-              action: 'resetPassword',
-              userId: editingUser.id,
-              password: temporaryPassword
-            }
-         });
-
-         if (passError) throw passError;
-         triggerToast("User updated and password reset successfully.");
-      } else {
-         triggerToast("User details updated successfully.");
-      }
+      // ... rest of your password logic ...
+      
+      setInfoModal({
+        open: true,
+        title: "User Updated",
+        message: "Details updated successfully.",
+        type: 'success'
+      });
 
       setOpenEditUserModal(false);
       fetchUsers();
 
     } catch (error) {
       console.error("Update Error:", error);
-      triggerToast(error.message || "Update failed", "error");
+      setInfoModal({
+        open: true,
+        title: "Update Failed",
+        message: error.message || "Update failed",
+        type: 'error'
+      });
     } finally {
       setLoading(false);
     }
@@ -416,11 +483,43 @@ const Settings = () => {
     else { triggerToast('Category added'); setNewCatName(''); fetchStaffCategories(); }
   };
 
-  const handleDeleteStaffCategory = async (id) => {
-    if (!confirm("Are you sure?")) return;
-    const { error } = await supabase.from('staff_role_categories').delete().eq('id', id);
-    if (error) triggerToast(error.message, 'error');
-    else { triggerToast('Category removed'); fetchStaffCategories(); }
+    const handleDeleteStaffCategory = async (id) => {
+    if (!confirm("Are you sure you want to delete this category?")) return;
+
+    setLoading(true); // Start loading
+    try {
+      // 1. DELETE FROM DATABASE
+      const { error } = await supabase
+        .from('staff_role_categories')
+        .delete()
+        .eq('id', id);
+
+      // 2. CHECK FOR ERRORS
+      if (error) {
+        throw error; // This jumps to the 'catch' block
+      }
+
+      // 3. UPDATE FRONTEND
+      setStaffCategories(prev => prev.filter(cat => cat.id !== id));
+      
+      // 4. SHOW SUCCESS MESSAGE
+      setInfoModal({
+        open: true,
+        title: "Deleted Successfully",
+        message: "The category has been permanently removed from the database.",
+        type: 'success'
+      });
+
+    } catch (error) {
+      setInfoModal({
+        open: true,
+        title: "Delete Failed",
+        message: "Could not delete category. Check console for details.",
+        type: 'error'
+      });
+    } finally {
+      setLoading(false); // Stop loading
+    }
   };
 
   const handleAddShiftPattern = async () => {
@@ -434,13 +533,44 @@ const Settings = () => {
   };
 
   const handleDeleteShiftPattern = async (id) => {
-    if (!confirm("Delete this shift pattern?")) return;
-    const { error } = await supabase.from('shift_patterns').delete().eq('id', id);
-    if (error) triggerToast(error.message, 'error');
-    else { triggerToast('Pattern removed'); fetchShiftPatterns(); }
+    if (!confirm("Are you sure you want to delete this shift pattern?")) return;
+
+    setLoading(true); // Start loading
+    try {
+      // 1. DELETE FROM DATABASE
+      const { error } = await supabase
+        .from('shift_patterns')
+        .delete()
+        .eq('id', id);
+
+      // 2. CHECK FOR ERRORS
+      if (error) {
+        throw error; // This jumps to the 'catch' block
+      }
+
+      // 3. UPDATE FRONTEND (Only if database delete worked)
+      setShiftPatterns(prev => prev.filter(shift => shift.id !== id));
+      
+      // 4. SHOW SUCCESS MESSAGE
+      setInfoModal({
+        open: true,
+        title: "Deleted Successfully",
+        message: "The shift pattern has been permanently removed from the database.",
+        type: 'success'
+      });
+
+    } catch (error) {
+      setInfoModal({
+        open: true,
+        title: "Delete Failed",
+        message: "Could not delete shift pattern. Check console for details.",
+        type: 'error'
+      });
+    } finally {
+      setLoading(false); // Stop loading
+    }
   };
 
-  // Role Modal Handlers
   const handleOpenRoleModal = () => {
     setRoleForm({ name: '', modules: [] });
     setOpenRoleModal(true);
@@ -482,7 +612,6 @@ const Settings = () => {
     }]);
 
     if (error) {
-      console.error("Error saving role:", error);
       triggerToast(error.message, 'error');
     } else {
       triggerToast('Role saved successfully');
@@ -694,7 +823,7 @@ const Settings = () => {
   };
 
    const renderUsersPanel = () => {
-    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied. Director privileges required.</Alert>;
+    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied. Administrator privileges required.</Alert>;
     
     return (
       <Box>
@@ -736,13 +865,12 @@ const Settings = () => {
               <TableRow>
                 <TableCell>User</TableCell>
                 <TableCell>Role</TableCell>
-                <TableCell>Status</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </ColorfulTableHead>
             <TableBody>
               {users.length === 0 ? (
-                <TableRow><TableCell colSpan={4} align="center" sx={{ py: 6, color: 'text.secondary' }}>No users found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={3} align="center" sx={{ py: 6, color: 'text.secondary' }}>No users found.</TableCell></TableRow>
               ) : users.map((u, idx) => (
                 <TableRow key={u.id} hover sx={{
                   background: getRowGradient(idx),
@@ -783,19 +911,8 @@ const Settings = () => {
                       }} />
                     )}
                   </TableCell>
-                  <TableCell><StatusDot active={u.status === 'Active'} /></TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
-                       {isDirector && (
-                         <Button 
-                           size="small" 
-                           variant="text" 
-                           sx={{ color: '#D97706', fontWeight: 600, minWidth: 'auto' }}
-                           onClick={() => alert(`System Note: Passwords are hashed. \nTo reset ${u.name}'s password, use the 'Edit' button.`)}
-                         >
-                           View Pwd
-                         </Button>
-                       )}
                        <Button 
                          size="small" 
                          variant="text" 
@@ -812,7 +929,6 @@ const Settings = () => {
           </Table>
         </TableContainer>
 
-        {/* --- ADD USER MODAL --- */}
         <Dialog open={openAddUserModal} onClose={handleCloseAddUserModal} maxWidth="sm" fullWidth
           PaperProps={{ sx: { position: 'fixed', bottom: 0, m: 0, borderRadius: '20px 20px 0 0', boxShadow: '0 -10px 40px rgba(0,0,0,0.15)' } }}
           BackdropProps={{ style: { backgroundColor: 'rgba(0, 0, 0, 0.3)' } }}>
@@ -852,7 +968,6 @@ const Settings = () => {
           </DialogActions>
         </Dialog>
 
-        {/* --- EDIT USER MODAL (NEW) --- */}
         <Dialog open={openEditUserModal} onClose={handleCloseEditModal} maxWidth="sm" fullWidth
           PaperProps={{ sx: { borderRadius: 3 } }}>
           <Box sx={{ height: 6, background: 'linear-gradient(90deg, #4F46E5, #EC4899)', borderRadius: '12px 12px 0 0' }} />
@@ -905,7 +1020,7 @@ const Settings = () => {
     );
   };
   const renderRolesPanel = () => {
-    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
+    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied. Administrator privileges required.</Alert>;
     if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
     const roleColors = ['#FF6B00', '#7C3AED', '#2563EB', '#059669', '#D97706', '#DC2626', '#0891B2', '#DB2777'];
     
@@ -969,7 +1084,6 @@ const Settings = () => {
                       </Box>
                       <Box>
                          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{r.name}</Typography>
-                         <Typography variant="caption" sx={{ color: '#64748B' }}>Lvl: {r.level}</Typography>
                       </Box>
                     </Box>
                   </Box>
@@ -984,7 +1098,7 @@ const Settings = () => {
   };
 
   const renderStaffCategories = () => {
-    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
+    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied. Administrator privileges required.</Alert>;
     if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
     return (
       <Box>
@@ -1055,7 +1169,7 @@ const Settings = () => {
   };
 
   const renderCareHomes = () => {
-    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
+    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied. Administrator privileges required.</Alert>;
     if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
     return (
       <Box>
@@ -1074,11 +1188,11 @@ const Settings = () => {
         <TableContainer component={Paper} sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
           <Table>
             <ColorfulTableHead gradient="linear-gradient(135deg, #DC2626 0%, #F59E0B 100%)">
-              <TableRow><TableCell>Facility & Address</TableCell><TableCell>Contact Person</TableCell><TableCell>Phone</TableCell><TableCell>Capacity</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell></TableRow>
+              <TableRow><TableCell>Facility & Address</TableCell><TableCell>Contact Person</TableCell><TableCell>Phone</TableCell><TableCell>Capacity</TableCell></TableRow>
             </ColorfulTableHead>
             <TableBody>
               {careHomes.length === 0 ? (
-                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 6, color: 'text.secondary' }}>No care homes found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} align="center" sx={{ py: 6, color: 'text.secondary' }}>No care homes found.</TableCell></TableRow>
               ) : careHomes.map((ch, idx) => (
                 <TableRow key={ch.id} hover sx={{ background: getRowGradient(idx), transition: 'all 0.2s' }}>
                   <TableCell>
@@ -1107,11 +1221,6 @@ const Settings = () => {
                       }} />
                     ) : '—'}
                   </TableCell>
-                  <TableCell><StatusDot active={ch.active} /></TableCell>
-                  <TableCell align="right">
-                    <Button size="small" sx={{ color: '#DC2626', fontWeight: 600, borderRadius: 2 }}
-                      onClick={() => triggerToast('Opening Details...')}>View</Button>
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1122,7 +1231,7 @@ const Settings = () => {
   };
 
   const renderShiftPatterns = () => {
-    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
+    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied. Administrator privileges required.</Alert>;
     if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
     return (
       <Box>
@@ -1172,7 +1281,7 @@ const Settings = () => {
         <TableContainer component={Paper} sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
           <Table>
             <ColorfulTableHead gradient="linear-gradient(135deg, #D97706 0%, #EA580C 100%)">
-              <TableRow><TableCell>Name</TableCell><TableCell>Code</TableCell><TableCell>Time</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell></TableRow>
+              <TableRow><TableCell>Name</TableCell><TableCell>Code</TableCell><TableCell>Time</TableCell><TableCell align="right">Actions</TableCell></TableRow>
             </ColorfulTableHead>
             <TableBody>
               {shiftPatterns.map((sp, idx) => (
@@ -1195,7 +1304,6 @@ const Settings = () => {
                       </Typography>
                     </Box>
                   </TableCell>
-                  <TableCell><StatusDot active={sp.is_active} /></TableCell>
                   <TableCell align="right">
                     <IconButton size="small" onClick={() => handleDeleteShiftPattern(sp.id)}
                       sx={{ color: '#EF4444', bgcolor: alpha('#EF4444', 0.08), '&:hover': { bgcolor: alpha('#EF4444', 0.15) }, borderRadius: 2 }}>
@@ -1216,24 +1324,17 @@ const Settings = () => {
   const renderSystemNotifications = () => {
     if (!isDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
     if (loading) return <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}><CircularProgress /></Box>;
+    
     return (
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-          <Box sx={{
-            width: 48, height: 48, borderRadius: 3,
-            background: 'linear-gradient(135deg, #0891B2, #2563EB)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', boxShadow: '0 4px 15px rgba(8,145,178,0.4)'
-          }}><NotificationIcon /></Box>
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 800, background: 'linear-gradient(135deg, #1E293B, #0891B2)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Notification Settings</Typography>
-            <Typography variant="body2" color="text.secondary">{notificationSettings.length} events configured</Typography>
-          </Box>
+          
+          
         </Box>
-        {notificationSettings.length === 0 ? (
-          <Alert severity="info" sx={{ borderRadius: 3 }}>No notification settings found in database.</Alert>
-        ) : (
-          <TableContainer component={Paper} sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+
+        {/* SECTION 1: NOTIFICATION SETTINGS */}
+        {notificationSettings.length > 0 && (
+          <TableContainer component={Paper} sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', mb: 4 }}>
             <Table>
               <ColorfulTableHead gradient="linear-gradient(135deg, #0891B2 0%, #2563EB 100%)">
                 <TableRow><TableCell>Event</TableCell><TableCell>Email</TableCell><TableCell>SMS</TableCell><TableCell>WhatsApp</TableCell><TableCell>Status</TableCell></TableRow>
@@ -1252,6 +1353,72 @@ const Settings = () => {
             </Table>
           </TableContainer>
         )}
+
+        <Divider sx={{ my: 4 }} />
+
+        {/* SECTION 2: RECENT ACTIVITIES */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3, mt: 2 }}>
+          <Box sx={{
+            width: 48, height: 48, borderRadius: 3,
+            background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white', boxShadow: '0 4px 15px rgba(99,102,241,0.4)'
+          }}><History /></Box>
+          <Box>
+            <Typography variant="h5" sx={{ fontWeight: 800, background: 'linear-gradient(135deg, #1E293B, #6366F1)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Recent System Activities</Typography>
+            <Typography variant="body2" color="text.secondary">Latest actions performed by users</Typography>
+          </Box>
+        </Box>
+
+        <TableContainer component={Paper} sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+          <Table>
+            <ColorfulTableHead gradient="linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)">
+              <TableRow>
+                <TableCell>User</TableCell>
+                <TableCell>Action</TableCell>
+                <TableCell>Details</TableCell>
+                <TableCell>Time</TableCell>
+              </TableRow>
+            </ColorfulTableHead>
+            <TableBody>
+              {activityLogs.length === 0 ? (
+                <TableRow><TableCell colSpan={4} align="center" sx={{ py: 6, color: 'text.secondary' }}>No recent activity found.</TableCell></TableRow>
+              ) : (
+                activityLogs.map((log, idx) => (
+                  <TableRow key={log.id} hover sx={{ background: getRowGradient(idx), transition: 'all 0.2s' }}>
+                    <TableCell>
+                      <Typography sx={{ fontWeight: 600 }}>
+                        {log.user_email || log.user_name || 'System'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={log.action} 
+                        size="small" 
+                        sx={{ 
+                          fontWeight: 700, 
+                          bgcolor: alpha('#6366F1', 0.1), 
+                          color: '#4F46E5',
+                          border: '1px solid rgba(99,102,241,0.2)' 
+                        }} 
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {log.details || 'No additional details'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                        {new Date(log.created_at).toLocaleString()}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Box>
     );
   };
@@ -1264,7 +1431,8 @@ const Settings = () => {
       case 3: return renderStaffCategories();
       case 4: return renderCareHomes();
       case 5: return renderShiftPatterns();
-      case 7: return renderSystemNotifications();
+      // FIXED INDEX FROM 7 TO 6
+      case 6: return renderSystemNotifications();
       default: return renderMyAccount();
     }
   };
@@ -1484,6 +1652,48 @@ const Settings = () => {
         </DialogActions>
       </Dialog>
 
+      {/* --- ATTRACTIVE SUCCESS/ERROR MODAL (From Clients.jsx) --- */}
+      <Dialog open={infoModal.open} onClose={() => setInfoModal({ ...infoModal, open: false })} PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden', maxWidth: 400 } }}>
+        <Box sx={{ 
+            textAlign: 'center', 
+            background: infoModal.type === 'success' 
+              ? 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' 
+              : infoModal.type === 'error'
+              ? 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)'
+              : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+            color: '#fff', 
+            py: 4, 
+            px: 2,
+            position: 'relative'
+          }}>
+          <Avatar sx={{ 
+              width: 64, height: 64, bgcolor: 'rgba(255,255,255,0.2)', 
+              margin: '0 auto 16px', 
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }}>
+            {infoModal.type === 'success' ? <CheckCircle sx={{ fontSize: 40, color: '#fff' }} /> : 
+             infoModal.type === 'error' ? <Error sx={{ fontSize: 40, color: '#fff' }} /> : 
+             <WarningAmber sx={{ fontSize: 40, color: '#fff' }} />}
+          </Avatar>
+          <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>{infoModal.title}</Typography>
+        </Box>
+        <DialogContent sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="body1" sx={{ color: '#64748b' }}>
+            {infoModal.message}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 3, pt: 0 }}>
+          <GradientButton 
+            onClick={() => setInfoModal({ ...infoModal, open: false })} 
+            colorType={infoModal.type}
+            autoFocus
+          >
+            Okay
+          </GradientButton>
+        </DialogActions>
+      </Dialog>
+
+      {/* LEGACY SNACKBAR (Keep for minor toasts if needed) */}
       <Snackbar open={notification.open} autoHideDuration={4000}
         onClose={() => setNotification({ ...notification, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>

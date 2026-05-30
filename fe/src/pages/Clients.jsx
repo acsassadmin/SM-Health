@@ -1,11 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+import { logActivity } from '../utils/logger';
 import {
   Box, Typography, Button, Grid, Card, CardContent, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, 
-  CircularProgress, TablePagination, useMediaQuery, useTheme
+  CircularProgress, TablePagination, useMediaQuery, useTheme, Avatar, styled, Paper
 } from '@mui/material';
-import { Add, Business, LocationOn, Phone, Person, Bed } from '@mui/icons-material';
+import { Add, Business, LocationOn, Phone, Person, Bed, CheckCircle, Error, WarningAmber } from '@mui/icons-material';
+
+// Custom Gradient Button for the Success Modal
+const GradientButton = styled(Button)(({ theme, colorType = 'success' }) => ({
+  background: colorType === 'success' 
+    ? 'linear-gradient(45deg, #6366f1 30%, #a855f7 90%)' 
+    : colorType === 'error'
+    ? 'linear-gradient(45deg, #ef4444 30%, #b91c1c 90%)'
+    : 'linear-gradient(45deg, #f59e0b 30%, #d97706 90%)',
+  border: 0,
+  borderRadius: 12,
+  color: 'white',
+  height: 48,
+  padding: '0 30px',
+  boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
+  fontSize: '16px',
+  fontWeight: 600,
+  textTransform: 'none',
+  '&:hover': {
+    boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+    opacity: 0.95,
+  },
+}));
 
 const Clients = () => {
   const theme = useTheme();
@@ -32,6 +55,14 @@ const Clients = () => {
     beds: ''
   });
 
+  // State for Attractive Info/Success Modal
+  const [infoModal, setInfoModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    type: 'success' // 'success' | 'error' | 'warning'
+  });
+
   // Fetch User Role on Mount
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -56,7 +87,7 @@ const Clients = () => {
     fetchCareHomes();
   }, [page, rowsPerPage, userRoleId]); // Added userRoleId dependency
 
-  const fetchCareHomes = async () => {
+   const fetchCareHomes = async () => {
     // LOGIC: If Staff (ID 14), do not fetch anything. Just stop.
     if (userRoleId === 14) {
       setLoading(false);
@@ -67,24 +98,68 @@ const Clients = () => {
     const from = page * rowsPerPage;
     const to = from + rowsPerPage - 1;
 
-    const { data, error, count } = await supabase
+   
+
+    // ATTEMPT 1: Sort by 'created_at' (Newest first)
+    let { data, error, count } = await supabase
       .from('care_homes')
       .select('*', { count: 'exact' })
-      .order('name', { ascending: true })
+      .order('created_at', { ascending: false }) 
       .range(from, to);
 
+    // FALLBACK: If sorting by 'created_at' fails (column might not exist), try sorting by 'id'
     if (error) {
-      console.error('Error fetching clients:', error);
+   
+      
+      const result = await supabase
+        .from('care_homes')
+        .select('*', { count: 'exact' })
+        .order('id', { ascending: false }) // Use 'id' as a backup timestamp proxy
+        .range(from, to);
+
+      data = result.data;
+      error = result.error;
+      count = result.count;
+    }
+
+    if (error) {
+      // Optionally show a toast/modal to the user
+      // setInfoModal({ open: true, title: "Error", message: error.message, type: 'error' });
     } else {
+    
       setHomes(data || []);
       setCount(count || 0);
     }
     setLoading(false);
   };
 
-  // Handle Input Changes
+  // Handle Input Changes with Validation
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    let processedValue = value;
+
+    // VALIDATION: Name & Contact Name -> Letters and Spaces Only
+    // Removes any numbers or special characters
+    if (name === 'name' || name === 'contact_name') {
+      processedValue = value.replace(/[^a-zA-Z\s]/g, '');
+    }
+
+    // VALIDATION: Phone -> No Letters Allowed
+    // Removes all letters but keeps numbers and symbols (+, -, etc.)
+    if (name === 'phone') {
+      processedValue = value.replace(/[a-zA-Z]/g, '');
+    }
+
+    // VALIDATION: Beds -> No Negative Numbers
+    if (name === 'beds') {
+      // Check if the value is empty or a non-negative number
+      if (processedValue === '' || (Number(processedValue) >= 0)) {
+        setFormData({ ...formData, [name]: processedValue });
+      }
+    } else {
+      // Set state for other validated fields (Name, Address, Contact Name, Phone)
+      setFormData({ ...formData, [name]: processedValue });
+    }
   };
 
   // Open Add Modal
@@ -97,12 +172,21 @@ const Clients = () => {
     setModalOpen(false);
   };
 
-  // Submit to DB
+   // Submit to DB
   const handleSubmit = async () => {
+  
+
     if (!formData.name || !formData.address) {
-      return alert("Name and Address are required");
+      setInfoModal({
+        open: true,
+        title: "Missing Information",
+        message: "Client Name and Address are required.",
+        type: 'error'
+      });
+      return;
     }
 
+    
     const { error } = await supabase
       .from('care_homes')
       .insert([{
@@ -114,9 +198,25 @@ const Clients = () => {
       }]);
 
     if (error) {
-      alert('Error saving client: ' + error.message);
+      setInfoModal({
+        open: true,
+        title: "System Error",
+        message: 'Error saving client: ' + error.message,
+        type: 'error'
+      });
     } else {
-      alert('Client added successfully!');
+      
+      // CALL THE LOGGER
+      await logActivity("Added Client", `Name: ${formData.name}, Beds: ${formData.beds}`);
+      
+
+      setInfoModal({
+        open: true,
+        title: "Client Added!",
+        message: `${formData.name} has been successfully added to the system.`,
+        type: 'success'
+      });
+      
       setModalOpen(false);
       fetchCareHomes();
     }
@@ -287,7 +387,7 @@ const Clients = () => {
         </>
       )}
 
-      {/* --- MODAL --- */}
+      {/* --- ADD CLIENT MODAL --- */}
       <Dialog open={modalOpen} onClose={handleCloseModal} maxWidth="sm" fullWidth>
         <DialogTitle>Add New Client</DialogTitle>
         <DialogContent>
@@ -324,12 +424,54 @@ const Clients = () => {
               margin="dense" name="beds" label="Total Beds"
               type="number" fullWidth variant="outlined" size="small"
               value={formData.beds} onChange={handleChange}
+              inputProps={{ min: 0 }}
             />
           </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseModal}>Cancel</Button>
           <Button variant="contained" onClick={handleSubmit}>Save Client</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* --- ATTRACTIVE SUCCESS/ERROR MODAL --- */}
+      <Dialog open={infoModal.open} onClose={() => setInfoModal({ ...infoModal, open: false })} PaperProps={{ sx: { borderRadius: 4, overflow: 'hidden', maxWidth: 400 } }}>
+        <Box sx={{ 
+            textAlign: 'center', 
+            background: infoModal.type === 'success' 
+              ? 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' 
+              : infoModal.type === 'error'
+              ? 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)'
+              : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+            color: '#fff', 
+            py: 4, 
+            px: 2,
+            position: 'relative'
+          }}>
+          <Avatar sx={{ 
+              width: 64, height: 64, bgcolor: 'rgba(255,255,255,0.2)', 
+              margin: '0 auto 16px', 
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }}>
+            {infoModal.type === 'success' ? <CheckCircle sx={{ fontSize: 40, color: '#fff' }} /> : 
+             infoModal.type === 'error' ? <Error sx={{ fontSize: 40, color: '#fff' }} /> : 
+             <WarningAmber sx={{ fontSize: 40, color: '#fff' }} />}
+          </Avatar>
+          <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>{infoModal.title}</Typography>
+        </Box>
+        <DialogContent sx={{ p: 3, textAlign: 'center' }}>
+          <Typography variant="body1" sx={{ color: '#64748b' }}>
+            {infoModal.message}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 3, pt: 0 }}>
+          <GradientButton 
+            onClick={() => setInfoModal({ ...infoModal, open: false })} 
+            colorType={infoModal.type}
+            autoFocus
+          >
+            Okay
+          </GradientButton>
         </DialogActions>
       </Dialog>
 

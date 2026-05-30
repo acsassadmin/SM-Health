@@ -3,20 +3,43 @@ import {
   Box, Typography, Button, Table, TableBody, TableCell, TableContainer, 
   TableHead, TableRow, Paper, Chip, Avatar, Card, CardContent, 
   LinearProgress, Stack, Modal, TextField, Select, MenuItem, 
-  DialogTitle, DialogContent, DialogActions, IconButton
+  DialogTitle, DialogContent, DialogActions, IconButton, styled
 } from '@mui/material';
 import { 
   Close as CloseIcon,
-  CalendarToday as CalendarIcon
+  CalendarToday as CalendarIcon,
+  CheckCircle
 } from '@mui/icons-material';
 // IMPORT YOUR SUPABASE CLIENT HERE
 import { supabase } from '../supabaseClient'; 
+
+// Custom Gradient Button for the Success Modal
+const GradientButton = styled(Button)(({ theme }) => ({
+  background: 'linear-gradient(45deg, #6366f1 30%, #a855f7 90%)',
+  border: 0,
+  borderRadius: 12,
+  color: 'white',
+  height: 48,
+  padding: '0 30px',
+  boxShadow: '0 4px 15px rgba(168, 85, 247, 0.3)',
+  fontSize: '16px',
+  fontWeight: 600,
+  textTransform: 'none',
+  '&:hover': {
+    boxShadow: '0 6px 20px rgba(168, 85, 247, 0.5)',
+    background: 'linear-gradient(45deg, #4f46e5 30%, #9333ea 90%)',
+  },
+}));
 
 export default function AvailabilityPage() {
   const [availability, setAvailability] = useState([]); 
   const [groupedAvailability, setGroupedAvailability] = useState([]); 
   const [staffList, setStaffList] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null); // Stores the profile of the logged-in user
+  const [isAdmin, setIsAdmin] = useState(false); // Permission flag
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false); 
   const [loading, setLoading] = useState(true);
   
   const [formData, setFormData] = useState({
@@ -34,28 +57,52 @@ export default function AvailabilityPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Staff
+      // 1. Get the logged-in Auth User
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) {
+       
+        setLoading(false);
+        return; 
+      }
+
+      // 2. Fetch Staff List to find the current user's profile and check permissions
       const { data: staffData, error: staffError } = await supabase
         .from('staff')
         .select('*');
       
       if (staffError) throw staffError;
       
-      // Normalize Staff IDs to Numbers
+      // Normalize Staff IDs
       const normalizedStaff = (staffData || []).map(s => ({ ...s, id: Number(s.id) }));
-      setStaffList(normalizedStaff);
 
-      // 2. Fetch Availability
-      const { data: availData, error: availError } = await supabase
+      // Find the logged-in user's profile matching by email
+      const myProfile = normalizedStaff.find(s => s.email === user.email);
+      
+      // Determine if Admin (Assumes an 'is_admin' boolean column exists in your 'staff' table)
+      // If you don't have this column, you can hardcode specific emails here or default to false.
+      const userIsAdmin = myProfile?.is_admin === true; 
+
+      setCurrentUser(myProfile);
+      setIsAdmin(userIsAdmin);
+
+      // 3. Fetch Availability based on permissions
+      let query = supabase
         .from('staff_availability')
         .select('*')
         .order('date', { ascending: true });
+
+      // RESTRICTION LOGIC: If not admin, only fetch data for the logged-in user
+      if (!userIsAdmin && myProfile) {
+        query = query.eq('staff_id', myProfile.id);
+      }
+
+      const { data: availData, error: availError } = await query;
 
       if (availError) throw availError;
 
       // Enrich and Normalize IDs
       const enrichedData = (availData || []).map(record => {
-        // CRITICAL: Convert IDs to Numbers immediately
         const numericId = Number(record.id);
         const numericStaffId = Number(record.staff_id);
         
@@ -72,8 +119,11 @@ export default function AvailabilityPage() {
       setAvailability(enrichedData);
       processGroupedData(enrichedData);
 
+      // Set Staff List for UI
+      // If not admin, only show the current user in the dropdown
+      setStaffList(userIsAdmin ? normalizedStaff : (myProfile ? [myProfile] : []));
+
     } catch (error) {
-      console.error("Error fetching data:", error);
       alert("Failed to load data.");
     } finally {
       setLoading(false);
@@ -96,7 +146,6 @@ export default function AvailabilityPage() {
     let currentGroup = null;
 
     sortedData.forEach(record => {
-      // Use numeric IDs in key
       const requestKey = `${record.staff_id}-${record.reason}-${record.notes || ''}`;
 
       if (!currentGroup) {
@@ -108,7 +157,6 @@ export default function AvailabilityPage() {
           end_date: record.date,
           reason: record.reason,
           notes: record.notes,
-          // Ensure ID is a number here as well
           rawIds: [Number(record.id)], 
           count: 1
         };
@@ -124,7 +172,6 @@ export default function AvailabilityPage() {
             diffDays === 1) {
           
           currentGroup.end_date = record.date;
-          // Push number ID
           currentGroup.rawIds.push(Number(record.id));
           currentGroup.count++;
 
@@ -167,8 +214,11 @@ export default function AvailabilityPage() {
   };
 
   const handleSave = async () => {
-    if (!formData.staff_id || !formData.start_date || !formData.end_date) {
-      alert('Please select a staff member and valid date range.');
+    // Logic to ensure staff_id is set correctly even if input is disabled
+    const staffIdToSave = isAdmin ? formData.staff_id : currentUser.id;
+
+    if (!staffIdToSave || !formData.start_date || !formData.end_date) {
+      alert('Please ensure all fields are valid.');
       return;
     }
 
@@ -183,7 +233,7 @@ export default function AvailabilityPage() {
       }
 
       const recordsToInsert = dateArray.map(date => ({
-        staff_id: Number(formData.staff_id),
+        staff_id: Number(staffIdToSave),
         date: date,
         reason: formData.reason,
         notes: formData.notes
@@ -194,22 +244,25 @@ export default function AvailabilityPage() {
         .insert(recordsToInsert);
 
       if (error) throw error;
+      
       fetchData(); 
       setIsModalOpen(false);
-      setFormData({ staff_id: '', start_date: new Date().toISOString().split('T')[0], end_date: new Date().toISOString().split('T')[0], reason: 'Annual Leave', notes: '' });
+      setIsSuccessModalOpen(true);
+      setFormData({ 
+        staff_id: isAdmin ? '' : currentUser.id, // Preserve selection for Admins, reset for Users
+        start_date: new Date().toISOString().split('T')[0], 
+        end_date: new Date().toISOString().split('T')[0], 
+        reason: 'Annual Leave', 
+        notes: '' 
+      });
     } catch (error) {
-      console.error("Error saving:", error);
       alert("Failed to save.");
     }
   };
 
-  // --- UPDATED DELETE HANDLER WITH DEBUGGING ---
   const handleDelete = async (idsToDelete) => {
-    console.log("Delete Triggered. IDs received:", idsToDelete);
 
     if (!idsToDelete || idsToDelete.length === 0) {
-      console.error("No IDs provided to delete.");
-      alert("Error: No records found to delete.");
       return;
     }
 
@@ -218,36 +271,25 @@ export default function AvailabilityPage() {
     }
 
     try {
-      // Convert to Numbers (Double check)
       const numericIds = idsToDelete.map(id => Number(id));
       
-      console.log("Sending delete request for IDs:", numericIds);
-
       const { data, error, count } = await supabase
         .from('staff_availability')
         .delete()
         .in('id', numericIds)
-        .select(); // Selecting data helps confirm what was deleted
+        .select(); 
 
-      console.log("Delete Response:", { data, error, count });
-
-      if (error) {
-        console.error("Supabase Delete Error:", error);
-        throw error;
-      }
+      if (error) throw error;
 
       if (count === 0) {
-         alert("No rows were deleted. The IDs might not exist or you don't have permission.");
+         alert("No rows were deleted.");
          return;
       }
 
-      alert("Leave removed successfully.");
-      
-      // Refresh Data
+      setIsSuccessModalOpen(true); 
       await fetchData(); 
 
     } catch (error) {
-      console.error("Error in handleDelete:", error);
       alert(`Failed to delete: ${error.message}`);
     }
   };
@@ -270,13 +312,19 @@ export default function AvailabilityPage() {
             Staff Availability
           </Typography>
           <Typography variant="body2" sx={{ color: '#5e7187' }}>
-            Track leave, sickness, and unavailability days
+            {isAdmin ? "Manage all leave and unavailability" : "Manage your own leave and unavailability"}
           </Typography>
         </Box>
         <Button 
           variant="contained" 
           startIcon={<CalendarIcon />}
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            // Pre-fill staff_id if not admin
+            if (!isAdmin && currentUser) {
+                setFormData(prev => ({ ...prev, staff_id: currentUser.id }));
+            }
+            setIsModalOpen(true);
+          }}
           sx={{ 
             bgcolor: '#1a5fba', 
             textTransform: 'none',
@@ -292,7 +340,7 @@ export default function AvailabilityPage() {
         <Paper sx={{ borderRadius: 3, border: '1px solid #e1e8f4', overflow: 'hidden' }}>
           <Box sx={{ p: 2, bgcolor: '#fff', borderBottom: '1px solid #e1e8f4' }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a2535' }}>
-              Unavailability Records
+              {isAdmin ? "All Unavailability Records" : "My Unavailability Records"}
             </Typography>
           </Box>
           
@@ -304,7 +352,7 @@ export default function AvailabilityPage() {
                   <TableCell>Date Range</TableCell>
                   <TableCell>Duration</TableCell>
                   <TableCell>Reason</TableCell>
-                  <TableCell>Notes</TableCell>
+                 
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -312,10 +360,9 @@ export default function AvailabilityPage() {
                 {loading ? (
                   <TableRow><TableCell colSpan={6} align="center">Loading...</TableCell></TableRow>
                 ) : groupedAvailability.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: '#94a3b8' }}>No unavailability records found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: '#94a3b8' }}>No records found.</TableCell></TableRow>
                 ) : (
                   groupedAvailability.map((group, index) => (
-                    // Use group.key to ensure React tracks the row correctly
                     <TableRow key={group.key || index} hover>
                       <TableCell>
                         <Stack direction="row" spacing={2} alignItems="center">
@@ -350,9 +397,7 @@ export default function AvailabilityPage() {
                           }} 
                         />
                       </TableCell>
-                      <TableCell sx={{ color: '#64748b', fontSize: 12 }}>
-                        {group.notes || '-'}
-                      </TableCell>
+                      
                       <TableCell align="right">
                         <Button 
                           size="small" 
@@ -378,7 +423,7 @@ export default function AvailabilityPage() {
                 Overview
               </Typography>
               <Box sx={{ mb: 2, color: '#5e7187', fontSize: 13 }}>
-                Staff with the most days marked unavailable:
+                {isAdmin ? "Staff with the most days marked unavailable:" : "Your unavailability stats:"}
               </Box>
 
               <Stack spacing={3}>
@@ -408,7 +453,10 @@ export default function AvailabilityPage() {
               
               <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid #e1e8f4' }}>
                 <Typography variant="caption" sx={{ color: '#94a3b8' }}>
-                  {staffList.length - Object.keys(unavailCountByStaff).length} staff with no unavailability marked.
+                  {isAdmin 
+                    ? `${staffList.length - Object.keys(unavailCountByStaff).length} staff with no unavailability marked.`
+                    : "Keep your calendar up to date."
+                  }
                 </Typography>
               </Box>
             </CardContent>
@@ -416,6 +464,7 @@ export default function AvailabilityPage() {
         </Box>
       </Box>
 
+      {/* --- ADD UNAVAILABLE MODAL --- */}
       <Modal 
         open={isModalOpen} 
         onClose={() => setIsModalOpen(false)}
@@ -444,26 +493,45 @@ export default function AvailabilityPage() {
 
           <DialogContent sx={{ pt: 3 }}>
             <Stack spacing={2}>
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
-                  Staff Member
-                </Typography>
-                <Select
-                  fullWidth
-                  name="staff_id"
-                  value={formData.staff_id}
-                  onChange={handleFormChange}
-                  displayEmpty
-                  sx={{ bgcolor: '#f7f9fc' }}
-                >
-                  <MenuItem value="" disabled>Select a staff member</MenuItem>
-                  {staffList.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name} — {s.role}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </Box>
+              {/* Staff Selector - Only shown to Admins */}
+              {isAdmin ? (
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
+                    Staff Member
+                  </Typography>
+                  <Select
+                    fullWidth
+                    name="staff_id"
+                    value={formData.staff_id}
+                    onChange={handleFormChange}
+                    displayEmpty
+                    sx={{ bgcolor: '#f7f9fc' }}
+                  >
+                    <MenuItem value="" disabled>Select a staff member</MenuItem>
+                    {staffList.map((s) => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.first_name} {s.last_name} — {s.role}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </Box>
+              ) : (
+                // Non-Admin view: Just display their own name, locked
+                <Box>
+                   <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
+                    Staff Member
+                  </Typography>
+                  <Box sx={{ 
+                     bgcolor: '#f7f9fc', 
+                     p: 2, 
+                     borderRadius: 1, 
+                     color: '#334155',
+                     fontWeight: 600
+                  }}>
+                    {currentUser ? `${currentUser.first_name} ${currentUser.last_name}` : 'Loading...'}
+                  </Box>
+                </Box>
+              )}
 
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <Box sx={{ flex: 1 }}>
@@ -545,6 +613,65 @@ export default function AvailabilityPage() {
               Save
             </Button>
           </DialogActions>
+        </Box>
+      </Modal>
+
+      {/* --- SUCCESS MODAL --- */}
+      <Modal 
+        open={isSuccessModalOpen} 
+        onClose={() => setIsSuccessModalOpen(false)}
+        aria-labelledby="success-modal-title"
+      >
+        <Box sx={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: 380,
+          bgcolor: '#ffffff',
+          borderRadius: 5,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+          p: 0,
+          textAlign: 'center',
+          overflow: 'hidden',
+          border: '1px solid #e0e7ff'
+        }}>
+          <Box sx={{
+            height: 120,
+            background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative'
+          }}>
+            <Box sx={{
+              width: 80,
+              height: 80,
+              bgcolor: '#ffffff',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 20px rgba(168, 85, 247, 0.4)',
+              mt: 4
+            }}>
+              <CheckCircle sx={{ fontSize: 48, color: '#10b981' }} />
+            </Box>
+          </Box>
+          <Box sx={{ px: 4, pb: 4, pt: 6 }}>
+            <Typography id="success-modal-title" variant="h5" sx={{ fontWeight: 700, mb: 1, color: '#1a2535', fontFamily: 'DM Sans' }}>
+              Success!
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#64748b', mb: 4, lineHeight: 1.5 }}>
+              Your request has been processed and the records have been updated successfully.
+            </Typography>
+            <GradientButton 
+                fullWidth 
+                onClick={() => setIsSuccessModalOpen(false)}
+            >
+                Done
+            </GradientButton>
+          </Box>
         </Box>
       </Modal>
     </Box>

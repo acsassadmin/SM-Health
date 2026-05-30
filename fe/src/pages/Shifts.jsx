@@ -79,7 +79,6 @@ const Shifts = () => {
       if (error) throw error;
       setShifts(data || []);
     } catch (err) {
-      console.error("Error fetching shifts:", err);
       setError("Failed to load shifts.");
     } finally {
       setLoading(false);
@@ -101,7 +100,6 @@ const Shifts = () => {
       if (error) throw error;
       if (data) setShiftPatterns(data);
     } catch (err) {
-      console.error("Error fetching shift patterns:", err);
     }
   };
 
@@ -121,7 +119,6 @@ const Shifts = () => {
       
       setRoleCategories(data || []);
     } catch (err) {
-      console.error("Error fetching role categories:", err);
     }
   };
 
@@ -132,7 +129,6 @@ const Shifts = () => {
       .eq('role', role);
 
     if (error) {
-      console.error("Error fetching staff:", error);
     } else {
       setAvailableStaff(data || []);
     }
@@ -179,7 +175,6 @@ const Shifts = () => {
 
       if (error) throw error;
     } catch (err) {
-      console.error("Critical fail sync with timesheets system database:", err);
     }
   };
 
@@ -242,7 +237,6 @@ const Shifts = () => {
       setIsCreateModalOpen(false);
       fetchShifts();
     } catch (err) {
-      console.error("Error saving shift:", err);
       alert("Failed to save shift.");
     }
   };
@@ -269,7 +263,6 @@ const Shifts = () => {
       setIsAssignModalOpen(false);
       fetchShifts();
     } catch (err) {
-      console.error("Error assigning staff:", err);
       alert("Failed to assign staff.");
     }
   };
@@ -285,7 +278,6 @@ const Shifts = () => {
       
       fetchShifts();
     } catch (err) {
-      console.error(err);
       alert("Failed to unassign.");
     }
   };
@@ -301,7 +293,6 @@ const Shifts = () => {
         
         fetchShifts();
       } catch (err) {
-        console.error("Error deleting shift:", err);
         alert("Failed to delete shift.");
       }
     }

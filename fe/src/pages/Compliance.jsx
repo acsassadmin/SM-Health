@@ -18,8 +18,8 @@ import {
   Person as PersonIcon,
   Description as FileIcon,
   Block as BlockIcon,
-  TrendingDown as TrendingDownIcon, // Added for Red state
-  Schedule as ScheduleIcon          // Added for Orange/Yellow states
+  TrendingDown as TrendingDownIcon,
+  Schedule as ScheduleIcon
 } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -69,7 +69,6 @@ export default function CompliancePage() {
       const roles = data.map(r => r.name);
       setRoleCategories(roles);
     } catch (error) {
-      console.error("Error fetching role categories:", error);
     }
   };
 
@@ -97,7 +96,6 @@ export default function CompliancePage() {
       setComplianceList(processedData);
 
     } catch (error) {
-      console.error("Error fetching compliance data:", error);
       alert("Failed to load compliance data. Check console for details.");
     } finally {
       setLoading(false);
@@ -205,15 +203,17 @@ export default function CompliancePage() {
         icon: <TrendingDownIcon />
       };
     } else if (percent < 50) {
-      return {
-        color: '#c2410c', // Orange Text
-        bg: '#ffedd5',    // Orange Bg
-        icon: <WarningIcon />
-      };
-    } else if (percent < 75) {
+      // CHANGED: Was Orange, now Yellow
       return {
         color: '#a16207', // Yellow Text
         bg: '#fef9c3',    // Yellow Bg
+        icon: <WarningIcon />
+      };
+    } else if (percent < 75) {
+      // CHANGED: Was Yellow, now Orange
+      return {
+        color: '#c2410c', // Orange Text
+        bg: '#ffedd5',    // Orange Bg
         icon: <ScheduleIcon />
       };
     } else {
@@ -271,7 +271,6 @@ export default function CompliancePage() {
       fetchData(); 
       alert('Compliance updated successfully');
     } catch (error) {
-      console.error("Error saving compliance:", error);
       alert(`Failed to save: ${error.message || 'Unknown error'}`);
     } finally {
       // FINALLY block guarantees the button will NEVER get stuck on "Saving..."
@@ -668,7 +667,7 @@ export default function CompliancePage() {
               {stats.percent}%
             </Typography>
             <Typography variant="caption" sx={{ fontWeight: 600, textTransform: 'uppercase', color: 'inherit' }}>
-              Compliance Overview
+              Compliance score
             </Typography>
           </Paper>
         </Box>
