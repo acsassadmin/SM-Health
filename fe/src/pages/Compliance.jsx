@@ -17,7 +17,9 @@ import {
   Edit as EditIcon,
   Person as PersonIcon,
   Description as FileIcon,
-  Block as BlockIcon
+  Block as BlockIcon,
+  TrendingDown as TrendingDownIcon, // Added for Red state
+  Schedule as ScheduleIcon          // Added for Orange/Yellow states
 } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -193,6 +195,37 @@ export default function CompliancePage() {
 
     return { total, expired, expiring, noRecord, rtwIssues, percent };
   }, [complianceList]);
+
+  // --- DYNAMIC COLOR CONFIG FOR OVERVIEW CARD ---
+  const getOverviewConfig = (percent) => {
+    if (percent < 10) {
+      return {
+        color: '#991b1b', // Red Text
+        bg: '#fee2e2',    // Red Bg
+        icon: <TrendingDownIcon />
+      };
+    } else if (percent < 50) {
+      return {
+        color: '#c2410c', // Orange Text
+        bg: '#ffedd5',    // Orange Bg
+        icon: <WarningIcon />
+      };
+    } else if (percent < 75) {
+      return {
+        color: '#a16207', // Yellow Text
+        bg: '#fef9c3',    // Yellow Bg
+        icon: <ScheduleIcon />
+      };
+    } else {
+      return {
+        color: '#166534', // Green Text
+        bg: '#dcfce7',    // Green Bg
+        icon: <VerifiedUserIcon />
+      };
+    }
+  };
+
+  const overviewConfig = getOverviewConfig(stats.percent);
 
   // --- HANDLERS ---
 
@@ -616,11 +649,27 @@ export default function CompliancePage() {
             </CardContent>
           </Card>
           
-          {/* Small Stat Card for Compliance Rate */}
-          <Paper sx={{ p: 2, borderRadius: 3, bgcolor: '#dcfce7', color: '#166534', textAlign: 'center', border: 0 }}>
-            <VerifiedUserIcon sx={{ fontSize: 32, mb: 1 }} />
-            <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1 }}>{stats.percent}%</Typography>
-            <Typography variant="caption" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>Compliance Rate</Typography>
+          {/* COMPLIANCE OVERVIEW CARD WITH DYNAMIC COLORS */}
+          <Paper 
+            sx={{ 
+              p: 2, 
+              borderRadius: 3, 
+              bgcolor: overviewConfig.bg, 
+              color: overviewConfig.color, 
+              textAlign: 'center', 
+              border: 0,
+              transition: 'background-color 0.3s ease, color 0.3s ease'
+            }}
+          >
+            <Box sx={{ fontSize: 32, mb: 1, color: 'inherit' }}>
+              {overviewConfig.icon}
+            </Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1, color: 'inherit' }}>
+              {stats.percent}%
+            </Typography>
+            <Typography variant="caption" sx={{ fontWeight: 600, textTransform: 'uppercase', color: 'inherit' }}>
+              Compliance Overview
+            </Typography>
           </Paper>
         </Box>
 

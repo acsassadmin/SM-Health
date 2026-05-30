@@ -82,7 +82,6 @@ const Staff = () => {
 
   // --- Form State ---
   const [formData, setFormData] = useState({
-    title: 'Mr.', // ADDED: Default Title
     first_name: '', last_name: '', dob: '', email: '', phone: '', ni_number: '', joined_date: '',
     contracted_hours: '', right_to_work_expiry: '', dbs_checked: false, dbs_expiry: '', role: '', temp_password: '',
     documents: []
@@ -278,7 +277,6 @@ const Staff = () => {
     const systemDocs = staffMember.custom_data?.uploaded_documents || [];
     
     const initialState = {
-      title: staffMember.title || 'Mr.', // ADDED: Load Title from DB
       first_name: staffMember.first_name || '',
       last_name: staffMember.last_name || '',
       dob: staffMember.dob || '',
@@ -346,7 +344,6 @@ const Staff = () => {
     }
 
     const payload = {
-      title, // ADDED: Include title in payload
       first_name,
       last_name,
       dob,
@@ -704,6 +701,7 @@ const Staff = () => {
                             <TableCell><Chip label={s.role || 'Unassigned'} size="small" color="primary" variant="outlined" /></TableCell>
                             <TableCell>{s.email || '—'}</TableCell>
                             <TableCell>{s.phone || '—'}</TableCell>
+                            
                             <TableCell>{s.joined_date || '—'}</TableCell>
                             <TableCell>{calculateYearsService(s.joined_date)}</TableCell>
                             <TableCell>{calculateAge(s.dob)}</TableCell>
@@ -1221,26 +1219,33 @@ const Staff = () => {
                 {activeStep === 0 && <Button sx={{ color: '#6c757d' }} onClick={() => setModalOpen(false)}>Cancel</Button>}
                 {activeStep > 0 && <Button sx={{ color: '#6c757d' }} onClick={() => setActiveStep(prev => prev - 1)} startIcon={<ArrowBack />}>Back</Button>}
 
-                {activeStep < steps.length - 1 ? (
-                  <Button 
-                    variant="contained" 
-                    sx={{ bgcolor: '#1a5fba' }} 
-                    onClick={() => {
-                      if (activeStep === 0) {
-                        if (!validateStep1()) {
-                          setNotification({ open: true, message: "Please fix validation errors before proceeding.", severity: 'warning' });
-                          return;
-                        }
-                      }
-                      setActiveStep(prev => prev + 1);
-                    }} 
-                    endIcon={<ArrowForward />}
-                  >
-                    Next Step
-                  </Button>
-                ) : (
-                  <Button variant="contained" sx={{ bgcolor: '#1a5fba', fontWeight: 'bold', px: 3 }} onClick={handleSave}>Save Staff Member</Button>
-                )}
+                {activeStep === 0 ? (
+   <Button 
+      variant="contained" 
+      sx={{ bgcolor: '#1a5fba' }} 
+      onClick={() => {
+        if (!validateStep1()) {
+          setNotification({ open: true, message: "Please fix validation errors before proceeding.", severity: 'warning' });
+          return;
+        }
+        setActiveStep(prev => prev + 1);
+      }} 
+      endIcon={<ArrowForward />}
+   >
+      Next Step
+   </Button>
+) : activeStep === 1 ? (
+   <Button 
+      variant="contained" 
+      sx={{ bgcolor: '#1a5fba' }} 
+      onClick={() => setActiveStep(prev => prev + 1)} 
+      endIcon={<ArrowForward />}
+   >
+      Next Step
+   </Button>
+) : (
+   <Button variant="contained" sx={{ bgcolor: '#1a5fba', fontWeight: 'bold', px: 3 }} onClick={handleSave}>Save Staff Member</Button>
+)}
               </>
             )}
           </DialogActions>

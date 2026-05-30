@@ -13,22 +13,25 @@ import {
 import { supabase } from '../supabaseClient'; 
 
 export default function AvailabilityPage() {
-  const [availability, setAvailability] = useState([]);
+  const [availability, setAvailability] = useState([]); 
+  const [groupedAvailability, setGroupedAvailability] = useState([]); 
   const [staffList, setStaffList] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   
   const [formData, setFormData] = useState({
     staff_id: '',
-    date: new Date().toISOString().split('T')[0],
-    reason: 'Annual Leave'
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: new Date().toISOString().split('T')[0],
+    reason: 'Annual Leave',
+    notes: ''
   });
 
   useEffect(() => {
     fetchData();
   }, []);
 
-    const fetchData = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
       // 1. Fetch Staff
@@ -37,10 +40,12 @@ export default function AvailabilityPage() {
         .select('*');
       
       if (staffError) throw staffError;
-      setStaffList(staffData || []);
+      
+      // Normalize Staff IDs to Numbers
+      const normalizedStaff = (staffData || []).map(s => ({ ...s, id: Number(s.id) }));
+      setStaffList(normalizedStaff);
 
-      // 2. Fetch Availability (Simplified - NO JOIN)
-      // We remove the nested 'staff' select to bypass the foreign key error for now
+      // 2. Fetch Availability
       const { data: availData, error: availError } = await supabase
         .from('staff_availability')
         .select('*')
@@ -48,35 +53,103 @@ export default function AvailabilityPage() {
 
       if (availError) throw availError;
 
-      // Manually find names for the table
-      const formattedAvail = (availData || []).map(record => {
-        const staffMember = staffData.find(s => s.id === record.staff_id);
+      // Enrich and Normalize IDs
+      const enrichedData = (availData || []).map(record => {
+        // CRITICAL: Convert IDs to Numbers immediately
+        const numericId = Number(record.id);
+        const numericStaffId = Number(record.staff_id);
+        
+        const staffMember = normalizedStaff.find(s => s.id === numericStaffId);
+        
         return {
-          id: record.id,
-          staff_id: record.staff_id,
+          ...record,
+          id: numericId,
+          staff_id: numericStaffId,
           staff_name: staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : 'Unknown Staff',
-          date: record.date,
-          reason: record.reason
         };
       });
 
-      setAvailability(formattedAvail);
+      setAvailability(enrichedData);
+      processGroupedData(enrichedData);
 
     } catch (error) {
-      console.error("Full Error:", error);
-      alert("Failed to load data. Check Console (F12).");
+      console.error("Error fetching data:", error);
+      alert("Failed to load data.");
     } finally {
       setLoading(false);
     }
   };
 
-  // --- HELPERS ---
-  const getFutureDate = (days) => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toISOString().split('T')[0];
+  // --- GROUPING LOGIC ---
+  const processGroupedData = (data) => {
+    if (!data || data.length === 0) {
+      setGroupedAvailability([]);
+      return;
+    }
+
+    const sortedData = [...data].sort((a, b) => {
+      if (a.staff_id !== b.staff_id) return a.staff_id - b.staff_id;
+      return new Date(a.date) - new Date(b.date);
+    });
+
+    const groups = [];
+    let currentGroup = null;
+
+    sortedData.forEach(record => {
+      // Use numeric IDs in key
+      const requestKey = `${record.staff_id}-${record.reason}-${record.notes || ''}`;
+
+      if (!currentGroup) {
+        currentGroup = {
+          key: requestKey,
+          staff_id: record.staff_id,
+          staff_name: record.staff_name,
+          start_date: record.date,
+          end_date: record.date,
+          reason: record.reason,
+          notes: record.notes,
+          // Ensure ID is a number here as well
+          rawIds: [Number(record.id)], 
+          count: 1
+        };
+      } else {
+        const prevDate = new Date(currentGroup.end_date);
+        const currDate = new Date(record.date);
+        const diffTime = Math.abs(currDate - prevDate);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (currentGroup.staff_id === record.staff_id && 
+            currentGroup.reason === record.reason &&
+            (currentGroup.notes || '') === (record.notes || '') &&
+            diffDays === 1) {
+          
+          currentGroup.end_date = record.date;
+          // Push number ID
+          currentGroup.rawIds.push(Number(record.id));
+          currentGroup.count++;
+
+        } else {
+          groups.push(currentGroup);
+          currentGroup = {
+            key: requestKey,
+            staff_id: record.staff_id,
+            staff_name: record.staff_name,
+            start_date: record.date,
+            end_date: record.date,
+            reason: record.reason,
+            notes: record.notes,
+            rawIds: [Number(record.id)],
+            count: 1
+          };
+        }
+      }
+    });
+
+    if (currentGroup) groups.push(currentGroup);
+    setGroupedAvailability(groups);
   };
 
+  // --- HELPERS ---
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
     const date = new Date(dateStr + 'T00:00:00');
@@ -85,91 +158,104 @@ export default function AvailabilityPage() {
 
   const getInitials = (name) => {
     if (!name) return '??';
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase();
+    return name.split(' ').map((n) => n[0]).join('').toUpperCase();
   };
 
-  // --- HANDLERS ---
   const handleFormChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSave = async () => {
-    if (!formData.staff_id || !formData.date) {
-      alert('Please select a staff member and a date.');
+    if (!formData.staff_id || !formData.start_date || !formData.end_date) {
+      alert('Please select a staff member and valid date range.');
       return;
     }
 
     try {
-      // 1. Find the selected staff object using the ID from the form
-      const selectedStaff = staffList.find(s => s.id === Number(formData.staff_id));
+      const dateArray = [];
+      let current = new Date(formData.start_date);
+      const end = new Date(formData.end_date);
 
-      if (!selectedStaff) {
-        alert('Staff member not found.');
-        return;
+      while (current <= end) {
+        dateArray.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
       }
 
-      // 2. INSERT INTO SUPABASE
-      const { data, error } = await supabase
+      const recordsToInsert = dateArray.map(date => ({
+        staff_id: Number(formData.staff_id),
+        date: date,
+        reason: formData.reason,
+        notes: formData.notes
+      }));
+
+      const { error } = await supabase
         .from('staff_availability')
-        .insert([{
-          staff_id: Number(formData.staff_id),
-          date: formData.date,
-          reason: formData.reason
-        }])
-        .select()
-        .single();
+        .insert(recordsToInsert);
 
       if (error) throw error;
-
-      // 3. Update UI (Optimistic Update using the returned data)
-      const newRecord = {
-        id: data.id,
-        staff_id: data.staff_id,
-        staff_name: `${selectedStaff.first_name} ${selectedStaff.last_name}`,
-        date: data.date,
-        reason: data.reason
-      };
-
-      setAvailability([...availability, newRecord]);
+      fetchData(); 
       setIsModalOpen(false);
-      
-      // Reset Form
-      setFormData({ staff_id: '', date: new Date().toISOString().split('T')[0], reason: 'Annual Leave' });
-
+      setFormData({ staff_id: '', start_date: new Date().toISOString().split('T')[0], end_date: new Date().toISOString().split('T')[0], reason: 'Annual Leave', notes: '' });
     } catch (error) {
-      console.error("Error saving availability:", error);
-      alert("Failed to save availability.");
+      console.error("Error saving:", error);
+      alert("Failed to save.");
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Remove this availability record?')) {
-      try {
-        const { error } = await supabase
-          .from('staff_availability')
-          .delete()
-          .eq('id', id);
+  // --- UPDATED DELETE HANDLER WITH DEBUGGING ---
+  const handleDelete = async (idsToDelete) => {
+    console.log("Delete Triggered. IDs received:", idsToDelete);
 
-        if (error) throw error;
+    if (!idsToDelete || idsToDelete.length === 0) {
+      console.error("No IDs provided to delete.");
+      alert("Error: No records found to delete.");
+      return;
+    }
 
-        // Update UI
-        setAvailability(availability.filter(a => a.id !== id));
+    if (!window.confirm(`Remove this block of ${idsToDelete.length} day(s)?`)) {
+      return;
+    }
 
-      } catch (error) {
-        console.error("Error deleting record:", error);
-        alert("Failed to delete record.");
+    try {
+      // Convert to Numbers (Double check)
+      const numericIds = idsToDelete.map(id => Number(id));
+      
+      console.log("Sending delete request for IDs:", numericIds);
+
+      const { data, error, count } = await supabase
+        .from('staff_availability')
+        .delete()
+        .in('id', numericIds)
+        .select(); // Selecting data helps confirm what was deleted
+
+      console.log("Delete Response:", { data, error, count });
+
+      if (error) {
+        console.error("Supabase Delete Error:", error);
+        throw error;
       }
+
+      if (count === 0) {
+         alert("No rows were deleted. The IDs might not exist or you don't have permission.");
+         return;
+      }
+
+      alert("Leave removed successfully.");
+      
+      // Refresh Data
+      await fetchData(); 
+
+    } catch (error) {
+      console.error("Error in handleDelete:", error);
+      alert(`Failed to delete: ${error.message}`);
     }
   };
 
   // --- STATS LOGIC ---
   const unavailCountByStaff = availability.reduce((acc, curr) => {
-    acc[curr.staff_name] = (acc[curr.staff_name] || 0) + 1;
+    const name = curr.staff_name || 'Unknown';
+    acc[name] = (acc[name] || 0) + 1;
     return acc;
   }, {});
 
@@ -178,7 +264,6 @@ export default function AvailabilityPage() {
 
   return (
     <Box sx={{ p: 3, bgcolor: '#f7f9fc', minHeight: '100vh' }}>
-      {/* PAGE HEADER */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
           <Typography variant="h4" sx={{ fontFamily: 'DM sans', color: '#0c1f3f', fontWeight: 400 }}>
@@ -203,14 +288,11 @@ export default function AvailabilityPage() {
         </Button>
       </Box>
 
-      {/* 2-COLUMN LAYOUT */}
       <Box sx={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 3 }}>
-        
-        {/* LEFT: AVAILABILITY LIST */}
         <Paper sx={{ borderRadius: 3, border: '1px solid #e1e8f4', overflow: 'hidden' }}>
           <Box sx={{ p: 2, bgcolor: '#fff', borderBottom: '1px solid #e1e8f4' }}>
             <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a2535' }}>
-              Unavailable Days
+              Unavailability Records
             </Typography>
           </Box>
           
@@ -219,35 +301,45 @@ export default function AvailabilityPage() {
               <TableHead sx={{ bgcolor: '#f7f9fc' }}>
                 <TableRow>
                   <TableCell>Staff Member</TableCell>
-                  <TableCell>Date</TableCell>
+                  <TableCell>Date Range</TableCell>
+                  <TableCell>Duration</TableCell>
                   <TableCell>Reason</TableCell>
+                  <TableCell>Notes</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={4} align="center">Loading...</TableCell></TableRow>
-                ) : availability.length === 0 ? (
-                  <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: '#94a3b8' }}>No unavailability records found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} align="center">Loading...</TableCell></TableRow>
+                ) : groupedAvailability.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} align="center" sx={{ py: 4, color: '#94a3b8' }}>No unavailability records found.</TableCell></TableRow>
                 ) : (
-                  availability.map((record) => (
-                    <TableRow key={record.id} hover>
+                  groupedAvailability.map((group, index) => (
+                    // Use group.key to ensure React tracks the row correctly
+                    <TableRow key={group.key || index} hover>
                       <TableCell>
                         <Stack direction="row" spacing={2} alignItems="center">
                           <Avatar 
                             sx={{ width: 32, height: 32, bgcolor: '#1a5fba', fontSize: 12, fontWeight: 'bold' }}
                           >
-                            {getInitials(record.staff_name)}
+                            {getInitials(group.staff_name)}
                           </Avatar>
                           <Typography variant="body2" sx={{ fontWeight: 600, color: '#1a2535' }}>
-                            {record.staff_name}
+                            {group.staff_name}
                           </Typography>
                         </Stack>
                       </TableCell>
-                      <TableCell sx={{ color: '#334155' }}>{formatDate(record.date)}</TableCell>
+                      <TableCell sx={{ color: '#334155' }}>
+                        <Typography variant="body2">
+                           {formatDate(group.start_date)} — {formatDate(group.end_date)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ color: '#64748b', fontSize: 12 }}>
+                        {group.count} Day{group.count > 1 ? 's' : ''}
+                      </TableCell>
                       <TableCell>
                         <Chip 
-                          label={record.reason} 
+                          label={group.reason} 
                           size="small" 
                           sx={{ 
                             bgcolor: '#fff7ed', 
@@ -258,11 +350,14 @@ export default function AvailabilityPage() {
                           }} 
                         />
                       </TableCell>
+                      <TableCell sx={{ color: '#64748b', fontSize: 12 }}>
+                        {group.notes || '-'}
+                      </TableCell>
                       <TableCell align="right">
                         <Button 
                           size="small" 
                           color="error" 
-                          onClick={() => handleDelete(record.id)}
+                          onClick={() => handleDelete(group.rawIds)} 
                           sx={{ textTransform: 'none', fontSize: 12 }}
                         >
                           Remove
@@ -276,7 +371,6 @@ export default function AvailabilityPage() {
           </TableContainer>
         </Paper>
 
-        {/* RIGHT: OVERVIEW STATS */}
         <Box>
           <Card sx={{ borderRadius: 3, border: '1px solid #e1e8f4', mb: 3 }}>
             <CardContent>
@@ -322,7 +416,6 @@ export default function AvailabilityPage() {
         </Box>
       </Box>
 
-      {/* MODAL: MARK UNAVAILABLE */}
       <Modal 
         open={isModalOpen} 
         onClose={() => setIsModalOpen(false)}
@@ -351,7 +444,6 @@ export default function AvailabilityPage() {
 
           <DialogContent sx={{ pt: 3 }}>
             <Stack spacing={2}>
-              {/* STAFF SELECT DROPDOWN */}
               <Box>
                 <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
                   Staff Member
@@ -373,18 +465,35 @@ export default function AvailabilityPage() {
                 </Select>
               </Box>
 
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
-                  Date
-                </Typography>
-                <TextField
-                  type="date"
-                  name="date"
-                  value={formData.date}
-                  onChange={handleFormChange}
-                  fullWidth
-                  sx={{ bgcolor: '#f7f9fc' }}
-                />
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
+                    Start Date
+                  </Typography>
+                  <TextField
+                    type="date"
+                    name="start_date"
+                    value={formData.start_date}
+                    onChange={handleFormChange}
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ bgcolor: '#f7f9fc' }}
+                  />
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
+                    End Date
+                  </Typography>
+                  <TextField
+                    type="date"
+                    name="end_date"
+                    value={formData.end_date}
+                    onChange={handleFormChange}
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ bgcolor: '#f7f9fc' }}
+                  />
+                </Box>
               </Box>
 
               <Box>
@@ -404,6 +513,22 @@ export default function AvailabilityPage() {
                   <MenuItem value="Sick Leave">Sick Leave</MenuItem>
                   <MenuItem value="Other">Other</MenuItem>
                 </Select>
+              </Box>
+
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', color: '#64748b', mb: 1, display: 'block' }}>
+                  Notes (Optional)
+                </Typography>
+                <TextField
+                  name="notes"
+                  value={formData.notes}
+                  onChange={handleFormChange}
+                  placeholder="Add any details..."
+                  multiline
+                  rows={2}
+                  fullWidth
+                  sx={{ bgcolor: '#f7f9fc' }}
+                />
               </Box>
             </Stack>
           </DialogContent>

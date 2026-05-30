@@ -4,26 +4,26 @@ import {
   Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Chip, IconButton, Divider, Alert, Snackbar, CircularProgress,
   Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, InputLabel, FormControl, Stack,
-  alpha, useTheme,
+  alpha, useTheme, List, ListItem, ListItemText, Checkbox,
 } from '@mui/material';
 import {
-  Person as UserIcon, Shield as RoleIcon, Shield, Badge as CategoryIcon, 
+  Person as UserIcon, Shield as RoleIcon, Shield, Badge as CategoryIcon,
   Business as ClientIcon, Business, AccessTime as ShiftIcon, AddCircle as CustomFieldIcon,
-  Notifications as NotificationIcon, Lock as SecurityIcon, AccountCircle as AccountCircle, 
-  Delete as DeleteIcon, Save as SaveIcon, Refresh as RefreshIcon, 
-  VpnKey, Add as AddIcon, AdminPanelSettings
+  Notifications as NotificationIcon, Lock as SecurityIcon, AccountCircle as AccountCircle,
+  Delete as DeleteIcon, Save as SaveIcon, Refresh as RefreshIcon,
+  VpnKey, Add as AddIcon, AdminPanelSettings,
+  CheckCircle, Cancel // 1. ADDED MISSING IMPORTS
 } from '@mui/icons-material';
 import { supabase } from '../supabaseClient';
 import TwoFactorAuth from "../auth/TwoFactorAuth";
 
 const TAB_CONFIG = [
   { label: 'My Account', icon: <AccountCircle fontSize="small" />, minRole: null },
-   { label: 'Users', icon: <UserIcon fontSize="small" />, minRole: 'Administrator' }, 
-  { label: 'Roles', icon: <RoleIcon fontSize="small" />, minRole: 'Administrator' }, 
+  { label: 'Users', icon: <UserIcon fontSize="small" />, minRole: 'Administrator' },
+  { label: 'Roles', icon: <RoleIcon fontSize="small" />, minRole: 'Administrator' },
   { label: 'Staff Categories', icon: <CategoryIcon fontSize="small" />, minRole: 'Administrator' },
   { label: 'Client Categories', icon: <ClientIcon fontSize="small" />, minRole: 'Administrator' },
   { label: 'Shift Patterns', icon: <ShiftIcon fontSize="small" />, minRole: 'Administrator' },
-  { label: 'Custom Fields', icon: <CustomFieldIcon fontSize="small" />, minRole: 'Administrator' },
   { label: 'Notifications', icon: <NotificationIcon fontSize="small" />, minRole: 'Director' },
 ];
 
@@ -36,17 +36,26 @@ const Settings = () => {
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState({ open: false, message: '', severity: 'success' });
 
+  // --- MODAL STATES ---
   const [openAddUserModal, setOpenAddUserModal] = useState(false);
+  
+  // 2. ADDED MISSING EDIT STATES
+  const [openEditUserModal, setOpenEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [editUserForm, setEditUserForm] = useState({
+    name: '', email: '', roleId: '', temporaryPassword: ''
+  });
+  
   const [newUserForm, setNewUserForm] = useState({
     name: '', email: '', roleId: '', temporaryPassword: ''
   });
 
+  // --- DATA STATES ---
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [staffCategories, setStaffCategories] = useState([]);
   const [careHomes, setCareHomes] = useState([]);
   const [shiftPatterns, setShiftPatterns] = useState([]);
-  const [customFields, setCustomFields] = useState([]);
   const [notificationSettings, setNotificationSettings] = useState([]);
   const [clientCategories, setClientCategories] = useState([]);
 
@@ -61,6 +70,25 @@ const Settings = () => {
   const [newCatName, setNewCatName] = useState('');
   const [newShift, setNewShift] = useState({ name: '', start: '', end: '' });
   const [newField, setNewField] = useState({ label: '', type: 'text', belongsTo: 'staff' });
+
+  // New Role Management State
+  const [openRoleModal, setOpenRoleModal] = useState(false);
+  const [roleForm, setRoleForm] = useState({
+    name: '',
+    modules: []
+  });
+
+  const availableModules = [
+    { id: 'staff', label: 'Staff' },
+    { id: 'clients', label: 'Clients' },
+    { id: 'shifts', label: 'Shifts' },
+    { id: 'rota', label: 'Rota' },
+    { id: 'calendar', label: 'Calendar' },
+    { id: 'availability', label: 'Availability' },
+    { id: 'timesheets', label: 'Timesheets' },
+    { id: 'compliance', label: 'Compliance' },
+    { id: 'settings', label: 'Settings' }
+  ];
 
   const triggerToast = (message, severity = 'success') => {
     setNotification({ open: true, message, severity });
@@ -102,7 +130,6 @@ const Settings = () => {
         fetchStaffCategories(),
         fetchCareHomes(),
         fetchShiftPatterns(),
-        fetchCustomFields(),
         fetchNotificationSettings()
       ]);
       setLoading(false);
@@ -134,44 +161,43 @@ const Settings = () => {
   const fetchMyProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    
+
     let roleName = currentUserRole;
     const { data: roleData } = await supabase.from('user_roles').select('role_id').eq('user_id', user.id).single();
     if (roleData?.role_id) {
       const { data: nameData } = await supabase.from('app_roles').select('name').eq('id', roleData.role_id).single();
       if (nameData) roleName = nameData.name;
     }
-    
-    // UPDATED: Takes display_name directly from auth.users metadata
-    setMyProfile({ 
-      id: user.id, 
-      first_name: user.user_metadata?.full_name || '', // Mapped to first_name for UI compatibility
-      last_name: '', // No longer needed
-      email: user.email, 
-      role: roleName, 
-      avatar_url: user.user_metadata?.avatar_url || '' 
+
+    setMyProfile({
+      id: user.id,
+      first_name: user.user_metadata?.full_name || '',
+      last_name: '',
+      email: user.email,
+      role: roleName,
+      avatar_url: user.user_metadata?.avatar_url || ''
     });
   };
-   const fetchUsers = async () => {
+  const fetchUsers = async () => {
     setLoading(true);
     try {
       const { data: authUsers, error: authError } = await supabase.rpc("get_auth_users");
       if (authError) throw authError;
 
       const formatted = authUsers.map((user) => ({
-        id: user.id, 
-        name: user.display_name || "No Name Set", 
-        email: user.email || "No email", 
-        role: user.role_name, 
-        status: "Active" 
+        id: user.id,
+        name: user.display_name || "No Name Set",
+        email: user.email || "No email",
+        role: user.role_name,
+        status: "Active"
       }));
-      
+
       setUsers(formatted);
     } catch (error) {
       console.error("Fetch Users Error:", error);
       triggerToast(error.message, "error");
-    } finally { 
-      setLoading(false); 
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -191,25 +217,29 @@ const Settings = () => {
     setCareHomes(data || []);
   };
 
-  const fetchNotificationSettings = async () => {
+    const fetchNotificationSettings = async () => {
     try {
       const { data, error } = await supabase.from("notification_settings").select("*").order("id");
+      
+      if (error && error.code === '404') {
+        console.warn("Notification settings table not found. Skipping.");
+        setNotificationSettings([]); 
+        return;
+      }
+      
       if (error) throw error;
       setNotificationSettings(data || []);
     } catch (err) {
       console.error("Error fetching notifications:", err.message);
+      setNotificationSettings([]); 
     }
   };
-
   const fetchShiftPatterns = async () => {
     const { data, error } = await supabase.from('shift_patterns').select('*').order('id');
     if (!error) setShiftPatterns(data);
   };
 
-  const fetchCustomFields = async () => {
-    const { data, error } = await supabase.from('custom_field_definitions').select('*').order('created_at', { ascending: false });
-    if (!error && data) setCustomFields(data);
-  };
+
 
   // ─── EVENT HANDLERS ──────────────────────────────────────────
   const handleOpenAddUserModal = () => {
@@ -218,16 +248,13 @@ const Settings = () => {
   };
   const handleCloseAddUserModal = () => setOpenAddUserModal(false);
 
-   const handleCreateUser = async () => {
+  const handleCreateUser = async () => {
     const { name, email, roleId, temporaryPassword } = newUserForm;
     
-    // 1. Client-side Validation
     if (!name || !email || !roleId || !temporaryPassword) { 
       triggerToast("All fields are required", "error"); 
-      return; 
+      return;
     }
-
-    // Basic Password strength check
     if (temporaryPassword.length < 6) {
       triggerToast("Password must be at least 6 characters", "error");
       return;
@@ -235,52 +262,41 @@ const Settings = () => {
     
     setLoading(true);
     try {
-      // 2. Create User in Supabase Auth
-      // We use the admin client (service role) logic via standard client if possible, 
-      // OR standard client. Note: Standard client requires user to be logged in.
-      // Assuming this is an admin action.
-      
+      const { data: authUsers, error: checkError } = await supabase.rpc("get_auth_users");
+      if (checkError) throw checkError;
+
+      const emailExists = authUsers.find(u => u.email === email);
+      if (emailExists) {
+        throw new Error("A user with this email already exists.");
+      }
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email,
         password: temporaryPassword,
-        options: {
-          data: {
-            display_name: name, // Store name in metadata
-            full_name: name
-          }
-        }
+        options: { data: { display_name: name, full_name: name } }
       });
 
       if (authError) {
-        // If the user already exists
         if (authError.message.includes('User already registered')) {
            throw new Error("A user with this email already exists.");
         }
         throw authError;
       }
 
-      if (!authData.user) {
-        throw new Error("Failed to create user account.");
-      }
+      if (!authData.user) throw new Error("Failed to create user account.");
 
-      // 3. Assign Role in 'user_roles' table
       const { error: roleError } = await supabase
         .from('user_roles')
-        .insert([{
-          user_id: authData.user.id,
-          role_id: parseInt(roleId) // Ensure roleId is a number if your DB expects it
-        }]);
+        .insert([{ user_id: authData.user.id, role_id: parseInt(roleId) }]);
 
       if (roleError) {
         console.error("Role assignment failed:", roleError);
-        // Rollback: Ideally we delete the auth user here, but for now we warn the admin
         throw new Error(`User created, but failed to assign role: ${roleError.message}`);
       }
 
-      // Success!
-      triggerToast("User created and role assigned successfully!");
+      triggerToast("User created successfully!");
       setOpenAddUserModal(false);
-      fetchUsers(); // Refresh table
+      fetchUsers();
       
     } catch (error) {
       console.error("Create User Error:", error);
@@ -289,14 +305,94 @@ const Settings = () => {
       setLoading(false); 
     }
   };
+
+  // --- EDIT USER FUNCTIONS ---
+  const handleOpenEditModal = (user) => {
+    const roleId = roles.find(r => r.name === user.role)?.id || '';
+    
+    setEditingUser(user);
+    setEditUserForm({
+      name: user.name,
+      email: user.email,
+      roleId: roleId,
+      temporaryPassword: '' 
+    });
+    setOpenEditUserModal(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setOpenEditUserModal(false);
+    setEditingUser(null);
+  };
+
+    const handleUpdateUser = async () => {
+    const { name, email, roleId, temporaryPassword } = editUserForm;
+    
+    if (!name || !email || !roleId) { 
+      triggerToast("Name, Email, and Role are required", "error"); 
+      return; 
+    }
+
+    setLoading(true);
+    try {
+      // 1. Check if Email is unique (excluding current user)
+      const { data: authUsers } = await supabase.rpc("get_auth_users");
+      const emailExists = authUsers.find(u => u.email === email && u.id !== editingUser.id);
+      
+      if (emailExists) {
+        throw new Error("This email is already in use by another user.");
+      }
+
+      // 2. Update Metadata (Name) & Email via Edge Function
+      const { error: updateError } = await supabase.functions.invoke('manage-users', {
+        body: {
+          action: 'updateUser',
+          userId: editingUser.id,
+          email: email,
+          userMetadata: { display_name: name, full_name: name }
+        }
+      });
+
+      if (updateError) throw updateError;
+
+      // 3. Update Role in DB (This remains normal)
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .update({ role_id: parseInt(roleId) })
+        .eq('user_id', editingUser.id);
+
+      if (roleError) throw roleError;
+
+      // 4. Handle Password Reset via Edge Function (if provided)
+      if (temporaryPassword && temporaryPassword.length >= 6) {
+         const { error: passError } = await supabase.functions.invoke('manage-users', {
+            body: {
+              action: 'resetPassword',
+              userId: editingUser.id,
+              password: temporaryPassword
+            }
+         });
+
+         if (passError) throw passError;
+         triggerToast("User updated and password reset successfully.");
+      } else {
+         triggerToast("User details updated successfully.");
+      }
+
+      setOpenEditUserModal(false);
+      fetchUsers();
+
+    } catch (error) {
+      console.error("Update Error:", error);
+      triggerToast(error.message || "Update failed", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleUpdateProfile = async () => {
     if (!myProfile.first_name) { triggerToast('Name is required', 'error'); return; }
-    
-    // UPDATED: Updates auth.users metadata instead of profiles table
-    const { error } = await supabase.auth.updateUser({ 
-      data: { full_name: myProfile.first_name } 
-    });
-    
+    const { error } = await supabase.auth.updateUser({ data: { full_name: myProfile.first_name } });
     if (error) triggerToast(error.message, 'error');
     else triggerToast('Profile updated successfully');
   };
@@ -344,47 +440,79 @@ const Settings = () => {
     else { triggerToast('Pattern removed'); fetchShiftPatterns(); }
   };
 
-  const handleAddCustomField = async () => {
-    if (!newField.label) return triggerToast('Label required', 'error');
-    const fieldKey = newField.label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-    const { error } = await supabase.from('custom_field_definitions').insert([{
-      field_label: newField.label, field_key: fieldKey, field_type: newField.type,
-      entity_type: newField.belongsTo, is_required: false, is_active: true
-    }]);
-    if (error) triggerToast(error.message, 'error');
-    else { triggerToast('Field added'); setNewField({ label: '', type: 'text', belongsTo: 'staff' }); fetchCustomFields(); }
+  // Role Modal Handlers
+  const handleOpenRoleModal = () => {
+    setRoleForm({ name: '', modules: [] });
+    setOpenRoleModal(true);
   };
 
-  const handleDeleteCustomField = async (id) => {
-    if (!confirm("Are you sure?")) return;
-    const { error } = await supabase.from('custom_field_definitions').delete().eq('id', id);
-    if (error) triggerToast(error.message, 'error');
-    else { triggerToast('Field removed'); fetchCustomFields(); }
+  const handleCloseRoleModal = () => {
+    setOpenRoleModal(false);
+  };
+
+  const handleModuleToggle = (moduleId) => {
+    setRoleForm(prev => {
+      const currentModules = prev.modules || [];
+      if (currentModules.includes(moduleId)) {
+        return { ...prev, modules: currentModules.filter(m => m !== moduleId) };
+      } else {
+        return { ...prev, modules: [...currentModules, moduleId] };
+      }
+    });
+  };
+
+     const handleSaveRole = async () => {
+    if (!roleForm.name) {
+      triggerToast("Role name is required", "error");
+      return;
+    }
+
+    const slug = roleForm.name.toLowerCase().replace(/\s+/g, '-');
+    const moduleList = roleForm.modules.length > 0 
+      ? `Modules: ${roleForm.modules.join(', ')}` 
+      : 'No specific modules assigned';
+    
+    const description = `${moduleList} (Created via Settings)`;
+
+    const { error } = await supabase.from('app_roles').insert([{
+      name: roleForm.name,
+      slug: slug,
+      description: description,
+      level: 10 
+    }]);
+
+    if (error) {
+      console.error("Error saving role:", error);
+      triggerToast(error.message, 'error');
+    } else {
+      triggerToast('Role saved successfully');
+      handleCloseRoleModal();
+      fetchRoles();
+    }
   };
 
   // ─── COLORFUL TABLE HEAD COMPONENT ───────────────────────────
- const ColorfulTableHead = ({ children, gradient }) => {
-  return (
-    <TableHead
-      sx={{
-        background: gradient,
-        // Target all header cells inside this specific head row
-        '& .MuiTableCell-head': {
-          color: 'white !important',
-          fontWeight: 800,
-          fontSize: '0.87rem',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px',
-          borderBottom: 'none',
-          backgroundColor: 'transparent !important', // Prevents theme fallback overrides
-          py: 2
-        }
-      }}
-    >
-      {children}
-    </TableHead>
-  );
-};
+  const ColorfulTableHead = ({ children, gradient }) => {
+    return (
+      <TableHead
+        sx={{
+          background: gradient,
+          '& .MuiTableCell-head': {
+            color: 'white !important',
+            fontWeight: 800,
+            fontSize: '0.87rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            borderBottom: 'none',
+            backgroundColor: 'transparent !important',
+            py: 2
+          }
+        }}
+      >
+        {children}
+      </TableHead>
+    );
+  };
 
   // ─── STATUS CHIP ─────────────────────────────────────────────
   const StatusDot = ({ active, label }) => (
@@ -404,8 +532,7 @@ const Settings = () => {
   );
 
   // ─── PANEL RENDERERS ─────────────────────────────────────────
-   const renderMyAccount = () => {
-    // Determine if the user has permission to edit their email
+  const renderMyAccount = () => {
     const canEditEmail = isDirector || isAdminOrDirector;
 
     return (
@@ -476,15 +603,15 @@ const Settings = () => {
                       sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                   </Grid>
                   <Grid item xs={12}>
-                    <TextField 
-                      fullWidth 
-                      size="small" 
-                      label="Email Address" 
-                      value={myProfile.email} 
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Email Address"
+                      value={myProfile.email}
                       onChange={(e) => setMyProfile({ ...myProfile, email: e.target.value })}
-                      disabled={!canEditEmail} 
+                      disabled={!canEditEmail}
                       helperText={canEditEmail ? "Update your email address" : "Contact admin to change email"}
-                      sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: canEditEmail ? 'transparent' : alpha('#000', 0.02) } }} 
+                      sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: canEditEmail ? 'transparent' : alpha('#000', 0.02) } }}
                     />
                   </Grid>
                 </Grid>
@@ -568,6 +695,7 @@ const Settings = () => {
 
    const renderUsersPanel = () => {
     if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied. Director privileges required.</Alert>;
+    
     return (
       <Box>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -657,8 +785,26 @@ const Settings = () => {
                   </TableCell>
                   <TableCell><StatusDot active={u.status === 'Active'} /></TableCell>
                   <TableCell align="right">
-                    <Button size="small" variant="text" sx={{ color: '#4F46E5', fontWeight: 600 }}
-                      onClick={() => triggerToast('Password reset requires server-side implementation')}>Reset</Button>
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                       {isDirector && (
+                         <Button 
+                           size="small" 
+                           variant="text" 
+                           sx={{ color: '#D97706', fontWeight: 600, minWidth: 'auto' }}
+                           onClick={() => alert(`System Note: Passwords are hashed. \nTo reset ${u.name}'s password, use the 'Edit' button.`)}
+                         >
+                           View Pwd
+                         </Button>
+                       )}
+                       <Button 
+                         size="small" 
+                         variant="text" 
+                         sx={{ color: '#4F46E5', fontWeight: 600 }}
+                         onClick={() => handleOpenEditModal(u)}
+                       >
+                         Edit
+                       </Button>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -666,21 +812,13 @@ const Settings = () => {
           </Table>
         </TableContainer>
 
+        {/* --- ADD USER MODAL --- */}
         <Dialog open={openAddUserModal} onClose={handleCloseAddUserModal} maxWidth="sm" fullWidth
-          PaperProps={{
-            sx: {
-              position: 'fixed', bottom: 0, m: 0, borderRadius: '20px 20px 0 0',
-              boxShadow: '0 -10px 40px rgba(0,0,0,0.15)'
-            }
-          }}
+          PaperProps={{ sx: { position: 'fixed', bottom: 0, m: 0, borderRadius: '20px 20px 0 0', boxShadow: '0 -10px 40px rgba(0,0,0,0.15)' } }}
           BackdropProps={{ style: { backgroundColor: 'rgba(0, 0, 0, 0.3)' } }}>
           <Box sx={{ height: 5, background: 'linear-gradient(90deg, #4F46E5, #EC4899)', borderRadius: '20px 20px 0 0' }} />
           <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Box sx={{
-              width: 36, height: 36, borderRadius: 2,
-              background: 'linear-gradient(135deg, #4F46E5, #EC4899)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white'
-            }}>
+             <Box sx={{ width: 36, height: 36, borderRadius: 2, background: 'linear-gradient(135deg, #4F46E5, #EC4899)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
               <AddIcon sx={{ fontSize: 18 }} />
             </Box>
             Create New System User
@@ -708,15 +846,61 @@ const Settings = () => {
           <DialogActions sx={{ p: 3 }}>
             <Button onClick={handleCloseAddUserModal} disabled={loading} sx={{ borderRadius: 2, fontWeight: 600 }}>Cancel</Button>
             <Button onClick={handleCreateUser} variant="contained" disabled={loading}
-              sx={{
-                borderRadius: 2, fontWeight: 600, px: 4,
-                background: 'linear-gradient(135deg, #4F46E5, #7C3AED)',
-                boxShadow: '0 4px 15px rgba(79,70,229,0.4)'
-              }}>
+              sx={{ borderRadius: 2, fontWeight: 600, px: 4, background: 'linear-gradient(135deg, #4F46E5, #7C3AED)', boxShadow: '0 4px 15px rgba(79,70,229,0.4)' }}>
               {loading ? <CircularProgress size={24} /> : 'Create User'}
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* --- EDIT USER MODAL (NEW) --- */}
+        <Dialog open={openEditUserModal} onClose={handleCloseEditModal} maxWidth="sm" fullWidth
+          PaperProps={{ sx: { borderRadius: 3 } }}>
+          <Box sx={{ height: 6, background: 'linear-gradient(90deg, #4F46E5, #EC4899)', borderRadius: '12px 12px 0 0' }} />
+          <DialogTitle sx={{ fontWeight: 700 }}>Edit User</DialogTitle>
+          <DialogContent>
+            <TextField margin="dense" label="Full Name" fullWidth variant="outlined" size="small"
+              value={editUserForm.name} onChange={(e) => setEditUserForm({ ...editUserForm, name: e.target.value })}
+              sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            
+            <TextField margin="dense" label="Email Address" type="email" fullWidth variant="outlined" size="small"
+              value={editUserForm.email} onChange={(e) => setEditUserForm({ ...editUserForm, email: e.target.value })}
+              sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+            
+            <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+              <InputLabel>Change Role</InputLabel>
+              <Select value={editUserForm.roleId} label="Change Role"
+                onChange={(e) => setEditUserForm({ ...editUserForm, roleId: e.target.value })}
+                sx={{ borderRadius: 2 }}>
+                {roles.map((role) => (<MenuItem key={role.id} value={role.id}>{role.name}</MenuItem>))}
+              </Select>
+            </FormControl>
+
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="caption" display="block" gutterBottom sx={{ fontWeight: 700, color: '#4F46E5' }}>
+              RESET PASSWORD (OPTIONAL)
+            </Typography>
+            <TextField 
+              margin="dense" 
+              label="New Temporary Password" 
+              type="password" 
+              fullWidth 
+              variant="outlined" 
+              size="small"
+              value={editUserForm.temporaryPassword} 
+              onChange={(e) => setEditUserForm({ ...editUserForm, temporaryPassword: e.target.value })}
+              helperText="Leave blank to keep current password."
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} 
+            />
+          </DialogContent>
+          <DialogActions sx={{ p: 3 }}>
+            <Button onClick={handleCloseEditModal} disabled={loading} sx={{ borderRadius: 2, fontWeight: 600 }}>Cancel</Button>
+            <Button onClick={handleUpdateUser} variant="contained" disabled={loading}
+              sx={{ borderRadius: 2, fontWeight: 600, px: 4, background: 'linear-gradient(135deg, #4F46E5, #7C3AED)', boxShadow: '0 4px 15px rgba(79,70,229,0.4)' }}>
+              {loading ? <CircularProgress size={24} /> : 'Save Changes'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
       </Box>
     );
   };
@@ -724,9 +908,10 @@ const Settings = () => {
     if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
     if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
     const roleColors = ['#FF6B00', '#7C3AED', '#2563EB', '#059669', '#D97706', '#DC2626', '#0891B2', '#DB2777'];
+    
     return (
       <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 4 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
           <Box sx={{
             width: 48, height: 48, borderRadius: 3,
             background: 'linear-gradient(135deg, #7C3AED, #EC4899)',
@@ -738,6 +923,29 @@ const Settings = () => {
             <Typography variant="body2" color="text.secondary">{roles.length} roles configured</Typography>
           </Box>
         </Box>
+
+        <Paper sx={{ p: 2.5, mb: 3, borderRadius: 3, bgcolor: alpha('#7C3AED', 0.03), border: `1.5px dashed ${alpha('#7C3AED', 0.3)}` }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', flex: 1 }}>
+               Create new system roles and assign module permissions (Saved to Description).
+            </Typography>
+            <Button 
+              variant="contained" 
+              onClick={handleOpenRoleModal} 
+              startIcon={<AddIcon />}
+              sx={{
+                borderRadius: 2, fontWeight: 600, px: 4,
+                background: 'linear-gradient(135deg, #7C3AED, #EC4899)',
+                boxShadow: '0 4px 15px rgba(124,58,237,0.4)',
+                '&:hover': { boxShadow: '0 6px 20px rgba(124,58,237,0.6)', transform: 'translateY(-1px)' },
+                transition: 'all 0.2s'
+              }}
+            >
+              Create New Role
+            </Button>
+          </Box>
+        </Paper>
+
         <Grid container spacing={3}>
           {roles.map((r, idx) => (
             <Grid item xs={12} sm={6} md={4} key={r.id}>
@@ -759,15 +967,11 @@ const Settings = () => {
                       }}>
                         <Shield sx={{ fontSize: 18 }} />
                       </Box>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{r.name}</Typography>
+                      <Box>
+                         <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{r.name}</Typography>
+                         <Typography variant="caption" sx={{ color: '#64748B' }}>Lvl: {r.level}</Typography>
+                      </Box>
                     </Box>
-                    {r.is_system && (
-                      <Chip label="System" size="small" sx={{
-                        fontWeight: 700, fontSize: '0.65rem',
-                        bgcolor: alpha('#EF4444', 0.1), color: '#EF4444',
-                        border: '1.5px solid rgba(239,68,68,0.3)'
-                      }} />
-                    )}
                   </Box>
                   <Typography variant="body2" color="text.secondary" sx={{ pl: 6.5 }}>{r.description || 'No description'}</Typography>
                 </CardContent>
@@ -1007,119 +1211,7 @@ const Settings = () => {
     );
   };
 
-  const renderCustomFields = () => {
-    if (!isAdminOrDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
-    if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>;
-    const typeColors = { text: '#2563EB', number: '#7C3AED', date: '#059669', boolean: '#D97706' };
-    const entityColors = { staff: '#EC4899', client: '#0891B2' };
-    return (
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-          <Box sx={{
-            width: 48, height: 48, borderRadius: 3,
-            background: 'linear-gradient(135deg, #EC4899, #8B5CF6)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', boxShadow: '0 4px 15px rgba(236,72,153,0.4)'
-          }}><CustomFieldIcon /></Box>
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 800, background: 'linear-gradient(135deg, #1E293B, #EC4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Custom Data Fields</Typography>
-            <Typography variant="body2" color="text.secondary">{customFields.length} fields defined</Typography>
-          </Box>
-        </Box>
-        <Paper sx={{ p: 2.5, mb: 3, borderRadius: 3, bgcolor: alpha('#EC4899', 0.03), border: `1.5px dashed ${alpha('#EC4899', 0.3)}` }}>
-          <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={4}>
-              <TextField fullWidth size="small" label="Field Label" value={newField.label}
-                onChange={(e) => setNewField({ ...newField, label: e.target.value })}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-            </Grid>
-            <Grid item xs={12} sm={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Type</InputLabel>
-                <Select value={newField.type} label="Type" onChange={(e) => setNewField({ ...newField, type: e.target.value })} sx={{ borderRadius: 2 }}>
-                  <MenuItem value="text">Text</MenuItem>
-                  <MenuItem value="number">Number</MenuItem>
-                  <MenuItem value="date">Date</MenuItem>
-                  <MenuItem value="boolean">Yes/No</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Attach To</InputLabel>
-                <Select value={newField.belongsTo} label="Attach To" onChange={(e) => setNewField({ ...newField, belongsTo: e.target.value })} sx={{ borderRadius: 2 }}>
-                  <MenuItem value="staff">Staff Records</MenuItem>
-                  <MenuItem value="client">Care Homes</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <Button variant="contained" fullWidth onClick={handleAddCustomField} startIcon={<AddIcon />}
-                sx={{
-                  borderRadius: 2, fontWeight: 600,
-                  background: 'linear-gradient(135deg, #EC4899, #8B5CF6)',
-                  boxShadow: '0 4px 15px rgba(236,72,153,0.4)',
-                  '&:hover': { boxShadow: '0 6px 20px rgba(236,72,153,0.6)', transform: 'translateY(-1px)' },
-                  transition: 'all 0.2s'
-                }}>
-                Add Field
-              </Button>
-            </Grid>
-          </Grid>
-        </Paper>
-        <TableContainer component={Paper} sx={{ borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
-          <Table>
-            <ColorfulTableHead gradient="linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%)">
-              <TableRow><TableCell>Label</TableCell><TableCell>Key</TableCell><TableCell>Type</TableCell><TableCell>Entity</TableCell><TableCell>Status</TableCell><TableCell align="right">Actions</TableCell></TableRow>
-            </ColorfulTableHead>
-            <TableBody>
-              {customFields.length === 0 ? (
-                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 6, color: 'text.secondary' }}>No custom fields defined yet.</TableCell></TableRow>
-              ) : customFields.map((cf, idx) => (
-                <TableRow key={cf.id} hover sx={{ background: getRowGradient(idx), transition: 'all 0.2s' }}>
-                  <TableCell><Typography sx={{ fontWeight: 700 }}>{cf.field_label}</Typography></TableCell>
-                  <TableCell>
-                    <Typography sx={{
-                      fontFamily: 'DM sans', fontSize: '0.8rem', fontWeight: 600,
-                      color: '#6B7280', bgcolor: alpha('#000', 0.04), px: 1.5, py: 0.5, borderRadius: 1.5,
-                      display: 'inline-block'
-                    }}>
-                      {cf.field_key}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={cf.field_type} size="small" sx={{
-                      fontWeight: 700, fontSize: '0.72rem',
-                      bgcolor: alpha(typeColors[cf.field_type] || '#6B7280', 0.1),
-                      color: typeColors[cf.field_type] || '#6B7280',
-                      border: `1.5px solid ${alpha(typeColors[cf.field_type] || '#6B7280', 0.3)}`,
-                      borderRadius: 2
-                    }} />
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={cf.entity_type} size="small" sx={{
-                      fontWeight: 700, fontSize: '0.72rem',
-                      bgcolor: alpha(entityColors[cf.entity_type] || '#6B7280', 0.1),
-                      color: entityColors[cf.entity_type] || '#6B7280',
-                      border: `1.5px solid ${alpha(entityColors[cf.entity_type] || '#6B7280', 0.3)}`,
-                      borderRadius: 2
-                    }} />
-                  </TableCell>
-                  <TableCell><StatusDot active={cf.is_active} /></TableCell>
-                  <TableCell align="right">
-                    <IconButton size="small" onClick={() => handleDeleteCustomField(cf.id)}
-                      sx={{ color: '#EF4444', bgcolor: alpha('#EF4444', 0.08), '&:hover': { bgcolor: alpha('#EF4444', 0.15) }, borderRadius: 2 }}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Box>
-    );
-  };
+
 
   const renderSystemNotifications = () => {
     if (!isDirector) return <Alert severity="error" sx={{ borderRadius: 3 }}>Access Denied.</Alert>;
@@ -1172,7 +1264,6 @@ const Settings = () => {
       case 3: return renderStaffCategories();
       case 4: return renderCareHomes();
       case 5: return renderShiftPatterns();
-      case 6: return renderCustomFields();
       case 7: return renderSystemNotifications();
       default: return renderMyAccount();
     }
@@ -1304,6 +1395,94 @@ const Settings = () => {
         }} />
         {displaySubpanelContent()}
       </Paper>
+
+      {/* ADD ROLE & PERMISSIONS MODAL */}
+      <Dialog 
+        open={openRoleModal} 
+        onClose={handleCloseRoleModal} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '20px',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
+          }
+        }}
+      >
+        <Box sx={{ height: 6, background: 'linear-gradient(90deg, #7C3AED, #EC4899)' }} />
+        <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1.5, pb: 1 }}>
+          <Box sx={{
+            width: 36, height: 36, borderRadius: 2,
+            background: 'linear-gradient(135deg, #7C3AED, #EC4899)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white'
+          }}>
+            <Shield sx={{ fontSize: 18 }} />
+          </Box>
+          Create New Role
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <TextField 
+            autoFocus 
+            margin="dense" 
+            label="Role Name" 
+            fullWidth 
+            variant="outlined" 
+            size="small"
+            value={roleForm.name} 
+            onChange={(e) => setRoleForm({ ...roleForm, name: e.target.value })}
+            sx={{ mb: 3, '& .MuiOutlinedInput-root': { borderRadius: 2 } }} 
+          />
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, color: '#64748B' }}>
+            Select Accessible Modules:
+          </Typography>
+          <Paper 
+            variant="outlined" 
+            sx={{ 
+              maxHeight: 300, 
+              overflow: 'auto', 
+              borderRadius: 2, 
+              borderColor: alpha('#7C3AED, 0.2'),
+              bgcolor: alpha('#7C3AED, 0.02')
+            }}
+          >
+            <List dense>
+              {availableModules.map((mod) => (
+                <ListItem 
+                  key={mod.id} 
+                  button 
+                  onClick={() => handleModuleToggle(mod.id)}
+                  sx={{ borderRadius: 1, mx: 1, my: 0.5 }}
+                >
+                  <Checkbox 
+                    checked={roleForm.modules.includes(mod.id)}
+                    sx={{
+                      color: '#7C3AED',
+                      '&.Mui-checked': { color: '#7C3AED' }
+                    }}
+                  />
+                  <ListItemText primary={mod.label} />
+                </ListItem>
+              ))}
+            </List>
+          </Paper>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 0 }}>
+          <Button onClick={handleCloseRoleModal} sx={{ borderRadius: 2, fontWeight: 600 }}>Cancel</Button>
+          <Button 
+            onClick={handleSaveRole} 
+            variant="contained" 
+            disabled={loading}
+            sx={{
+              borderRadius: 2, fontWeight: 600, px: 4,
+              background: 'linear-gradient(135deg, #7C3AED, #EC4899)',
+              boxShadow: '0 4px 15px rgba(124,58,237,0.4)',
+              '&:hover': { boxShadow: '0 6px 20px rgba(124,58,237,0.6)' }
+            }}
+          >
+            {loading ? <CircularProgress size={20} color="inherit" /> : 'Save Role'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar open={notification.open} autoHideDuration={4000}
         onClose={() => setNotification({ ...notification, open: false })}
